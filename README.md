@@ -2,7 +2,7 @@
 
 > **Everything hinges on it.** 万事，系于此枢。
 
-[Cardinal（枢机）](https://bitcook.github.io/Cardinal/) 是 **Agenos** 项目的控制面品牌与官网：
+[Cardinal（枢机）](https://bit-cook.github.io/Cardinal/) 是 **Agenos** 项目的控制面品牌与官网：
 
 - **枢** = 控制面：命令由此下达，数据由此回报，一切绕它运转
 - **机** = 机器 / 机关 / 机制：Agents（机器）、命令路由（机关）、触发与执行
