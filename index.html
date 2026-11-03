@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cardinal · 枢机 — 你的 Agent 世界的控制面</title>
+<meta name="description" content="Cardinal（枢机）：把散落在各主机上的 Agent 收进一个控制点。微信下令，全局回报，只服务你一个人。Agenos 项目的控制面品牌。">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<meta property="og:title" content="Cardinal · 枢机">
+<meta property="og:description" content="Everything hinges on it. 万事，系于此枢。">
+<style>
+  :root{
+    --bg:#0D0E10; --bg2:#131518; --line:#23262B;
+    --text:#E9E7E2; --muted:#9A9DA3;
+    --red:#E22638; --red-deep:#A8122B; --amber:#E8913A;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg);color:var(--text);
+    font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    line-height:1.75;-webkit-font-smoothing:antialiased;
+  }
+  /* 环境底纹：极淡网格 + 顶部红晕 */
+  body::before{
+    content:"";position:fixed;inset:0;z-index:-2;
+    background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:72px 72px;opacity:.14;
+  }
+  body::after{
+    content:"";position:fixed;left:50%;top:-320px;transform:translateX(-50%);
+    width:1100px;height:640px;z-index:-1;border-radius:50%;
+    background:radial-gradient(closest-side,rgba(226,38,56,.16),transparent 70%);
+    pointer-events:none;
+  }
+  .serif{font-family:Georgia,"Times New Roman",serif;font-style:italic}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+  section{padding:96px 0}
+  .kicker{color:var(--red);font-size:13px;letter-spacing:.35em;text-transform:uppercase;font-weight:700}
+  h2{font-size:34px;font-weight:800;margin:10px 0 18px;letter-spacing:.02em}
+  .lead{color:var(--muted);max-width:640px}
+
+  /* nav */
+  nav{position:sticky;top:0;z-index:10;backdrop-filter:blur(10px);
+    background:rgba(13,14,16,.78);border-bottom:1px solid var(--line)}
+  .nav{display:flex;align-items:center;gap:28px;height:64px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:17px}
+  .brand img{width:28px;height:28px;border-radius:7px}
+  .brand .zh{color:var(--red);margin-left:2px}
+  .nav .sp{flex:1}
+  .nav a.item{color:var(--muted);font-size:14px;transition:color .2s}
+  .nav a.item:hover{color:var(--text)}
+  .nav a.gh{border:1px solid var(--line);border-radius:9px;padding:7px 14px;font-size:14px;transition:.2s}
+  .nav a.gh:hover{border-color:var(--red);color:var(--red)}
+
+  /* hero */
+  .hero{padding:130px 0 110px;text-align:left}
+  .hero .eyebrow{color:var(--muted);font-size:13px;letter-spacing:.3em;text-transform:uppercase}
+  .hero h1{font-size:clamp(56px,9vw,108px);font-weight:900;line-height:1.04;letter-spacing:-.015em;margin:18px 0 6px}
+  .hero h1 .zh{color:var(--red);margin-left:.18em}
+  .hero .tag{font-size:clamp(20px,3vw,28px);color:var(--text);opacity:.9}
+  .hero .tag-zh{color:var(--muted);font-size:16px;margin-top:6px;letter-spacing:.5em}
+  .hero p.desc{color:var(--muted);max-width:600px;margin:26px 0 36px;font-size:17px}
+  .hero p.desc b{color:var(--text);font-weight:700}
+  .cta{display:flex;gap:14px;flex-wrap:wrap}
+  .btn{display:inline-block;border-radius:11px;padding:13px 26px;font-weight:700;font-size:15px;transition:.2s;border:1px solid transparent}
+  .btn.primary{background:var(--red);color:#fff}
+  .btn.primary:hover{background:#F0354D;transform:translateY(-1px)}
+  .btn.ghost{border-color:var(--line);color:var(--text)}
+  .btn.ghost:hover{border-color:var(--red);color:var(--red)}
+  .hero .logo{width:148px;height:148px;margin-bottom:26px;filter:drop-shadow(0 12px 32px rgba(226,38,56,.35))}
+
+  /* 三卡 */
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:44px}
+  .card{background:var(--bg2);border:1px solid var(--line);border-radius:16px;padding:30px 26px;transition:.25s}
+  .card:hover{border-color:rgba(226,38,56,.55);transform:translateY(-3px)}
+  .card .no{font-size:13px;color:var(--red);font-weight:800;letter-spacing:.2em}
+  .card h3{font-size:21px;margin:10px 0 10px}
+  .card p{color:var(--muted);font-size:14.5px}
+  .card p b{color:var(--text)}
+
+  /* 架构层叠 */
+  .layers{margin-top:44px;border-left:2px solid var(--line);padding-left:0}
+  .layer{position:relative;padding:20px 28px;border:1px solid var(--line);border-radius:14px;background:var(--bg2);margin:0 0 14px 26px}
+  .layer::before{content:"";position:absolute;left:-33px;top:50%;width:16px;height:2px;background:var(--red);opacity:.7}
+  .layer .role{font-size:12px;letter-spacing:.3em;color:var(--red);font-weight:800;text-transform:uppercase}
+  .layer h3{font-size:19px;margin:4px 0 2px}
+  .layer p{color:var(--muted);font-size:14.5px}
+  .layer .tags{margin-top:8px;display:flex;gap:8px;flex-wrap:wrap}
+  .tag{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:3px 12px}
+  .flownote{color:var(--muted);font-size:13.5px;margin-top:10px}
+  .flownote b{color:var(--red)}
+
+  /* 红线 */
+  .rules{margin-top:36px;display:grid;grid-template-columns:1fr 1fr;gap:12px 28px}
+  .rule{display:flex;gap:14px;align-items:flex-start;background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:16px 20px}
+  .rule .dot{color:var(--red);font-weight:900;font-size:16px;line-height:1.75}
+  .rule p{font-size:14.5px;color:var(--text)}
+  .rule p span{color:var(--muted)}
+
+  /* 命名 */
+  .namegrid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:44px}
+  .namecard{background:var(--bg2);border:1px solid var(--line);border-radius:16px;padding:34px 30px}
+  .namecard .lang{color:var(--muted);font-size:12px;letter-spacing:.3em;text-transform:uppercase}
+  .namecard .word{font-size:40px;font-weight:900;margin:8px 0 2px}
+  .namecard .word.red{color:var(--red)}
+  .namecard p{color:var(--muted);font-size:14.5px;margin-top:10px}
+  .namecard p b{color:var(--text)}
+  .eq{ text-align:center;color:var(--red);font-size:22px;margin:26px 0 0;letter-spacing:.2em}
+  .birdnote{margin-top:36px;border-top:1px dashed var(--line);padding-top:24px;color:var(--muted);font-size:14.5px;display:flex;gap:18px;align-items:center}
+  .birdnote img{width:64px;height:64px;flex:none;border-radius:14px}
+
+  /* 文档 */
+  .docs{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:40px}
+  .doc{display:flex;justify-content:space-between;align-items:center;gap:16px;background:var(--bg2);
+    border:1px solid var(--line);border-radius:14px;padding:20px 24px;transition:.2s}
+  .doc:hover{border-color:var(--red);transform:translateY(-2px)}
+  .doc h4{font-size:16.5px}
+  .doc p{color:var(--muted);font-size:13px}
+  .doc .arrow{color:var(--red);font-size:20px}
+
+  footer{border-top:1px solid var(--line);padding:44px 0 60px;color:var(--muted);font-size:13.5px}
+  footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:center}
+  footer b{color:var(--text)}
+  footer .bird{width:22px;height:22px;border-radius:6px;vertical-align:-5px}
+
+  /* 入场动画 */
+  @keyframes rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+  .hero .eyebrow,.hero h1,.hero .tag,.hero .tag-zh,.hero .desc,.hero .cta,.hero .logo{animation:rise .7s ease both}
+  .hero h1{animation-delay:.08s}.hero .tag{animation-delay:.16s}.hero .tag-zh{animation-delay:.22s}
+  .hero .desc{animation-delay:.3s}.hero .cta{animation-delay:.38s}.hero .logo{animation-delay:0s}
+
+  @media (max-width:820px){
+    .grid3,.namegrid,.docs{grid-template-columns:1fr}
+    .rules{grid-template-columns:1fr}
+    section{padding:72px 0}
+    .nav a.item{display:none}
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap nav">
+    <a class="brand" href="#top">
+      <img src="favicon.svg" alt="Cardinal 徽标">
+      <span>Cardinal<span class="zh">枢机</span></span>
+    </a>
+    <span class="sp"></span>
+    <a class="item" href="#arch">架构</a>
+    <a class="item" href="#rules">红线</a>
+    <a class="item" href="#name">命名</a>
+    <a class="item" href="#docs">文档</a>
+    <a class="gh" href="https://github.com/BitCook/Cardinal" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap">
+    <img class="logo" src="logo.svg" alt="Cardinal 徽记：红衣凤头鸟">
+    <p class="eyebrow">Agenos · Agent OS 控制面</p>
+    <h1>Cardinal<span class="zh">枢机</span></h1>
+    <p class="tag serif">Everything hinges on it.</p>
+    <p class="tag-zh">万事，系于此枢。</p>
+    <p class="desc">把散落在各台主机上的 Agent 收进一个控制点——<b>微信下令，全局回报</b>。这个 Agent 世界只服务一个人：<b>你</b>。</p>
+    <div class="cta">
+      <a class="btn primary" href="#arch">了解架构</a>
+      <a class="btn ghost" href="https://4m9692y3g6zdz.doubao.link/app/app_17hb39p9gdc" target="_blank" rel="noopener">部署手册 ↗</a>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <p class="kicker">What it is</p>
+    <h2>三个「一切」</h2>
+    <p class="lead">Cardinal 不是又一个 Agent 框架，它是框架之上的一层：统一纳管、统一命令、统一审计。</p>
+    <div class="grid3">
+      <div class="card">
+        <p class="no">01</p>
+        <h3>一切汇于此</h3>
+        <p>多主机、异构框架统一注册：<b>OpenClaw</b> 原生接入，<b>Hermes</b> 经心跳 Sidecar 上报，其他 CLI 走 generic。注册、心跳、任务、成本、审计，一个面板。</p>
+      </div>
+      <div class="card">
+        <p class="no">02</p>
+        <h3>一切令由此出</h3>
+        <p>微信发一条文本 → 命令路由归一 → 控制面 REST → 节点执行。<b>/list /status /dispatch</b>，六条命令指挥全局；危险命令，二次确认。</p>
+      </div>
+      <div class="card">
+        <p class="no">03</p>
+        <h3>一切只为你</h3>
+        <p>唯一管理员，唯一主宰。命令入口白名单 <b>allowFrom</b>，只接受你本人；其他人发任何消息，一律拒绝。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="arch">
+  <div class="wrap">
+    <p class="kicker">Architecture</p>
+    <h2>四层架构：命令下行，数据上行</h2>
+    <p class="lead">层与层之间只传命令与数据，节点之间互不依赖——任何一层坏了，都可以单独替换。</p>
+    <div class="layers">
+      <div class="layer">
+        <p class="role">入口层 · Entry</p>
+        <h3>微信 / 企业微信</h3>
+        <p>你唯一的人机入口。人在哪里，指挥部就在哪里。</p>
+        <div class="tags"><span class="tag">企业微信自建应用</span><span class="tag">WebSocket 长连接</span></div>
+      </div>
+      <div class="layer">
+        <p class="role">网关层 · Gateway</p>
+        <h3>微信桥 · 命令路由</h3>
+        <p>消息收发、白名单校验、命令归一、危险操作二次确认。</p>
+        <div class="tags"><span class="tag">allowFrom 白名单</span><span class="tag">审计日志</span></div>
+      </div>
+      <div class="layer">
+        <p class="role">控制面 · Control Plane</p>
+        <h3>Mission-Control</h3>
+        <p>Agent 注册、心跳、任务、日志、成本、审计；REST API / Webhook 对上服务。</p>
+        <div class="tags"><span class="tag">SQLite 单文件</span><span class="tag">MIT 开源</span></div>
+      </div>
+      <div class="layer">
+        <p class="role">节点层 · Nodes</p>
+        <h3>各主机上的 Agent</h3>
+        <p>OpenClaw 原生接入；Hermes 走心跳 Sidecar；其他 CLI 走 generic。</p>
+        <div class="tags"><span class="tag">OpenClaw</span><span class="tag">Hermes Agent</span><span class="tag">generic CLI</span></div>
+      </div>
+    </div>
+    <p class="flownote">所有主机经 <b>Tailscale</b> 组成加密内网；控制面与网关端口<b>只监听 Tailscale 网卡或 127.0.0.1，不暴露公网</b>。</p>
+  </div>
+</section>
+
+<section id="rules">
+  <div class="wrap">
+    <p class="kicker">Red Lines</p>
+    <h2>安全红线，条条可验证</h2>
+    <p class="lead">权力越大，约束越硬。以下每一条都写进了部署手册的验收标准。</p>
+    <div class="rules">
+      <div class="rule"><p class="dot">✕</p><p>命令入口白名单，只保留本人 ID<span> —— 其余任何人，一律拒绝</span></p></div>
+      <div class="rule"><p class="dot">✕</p><p>重启、删除、下发任务<span> —— 二次确认后才执行</span></p></div>
+      <div class="rule"><p class="dot">✕</p><p>控制面与网关端口<span> —— 只监听 Tailscale / 127.0.0.1</span></p></div>
+      <div class="rule"><p class="dot">✕</p><p>密钥只走环境变量<span> —— chmod 600，不入库、不入镜像</span></p></div>
+      <div class="rule"><p class="dot">✕</p><p>Sidecar 与桥用最小权限账号<span> —— 禁止 root 常驻</span></p></div>
+      <div class="rule"><p class="dot">✕</p><p>命名现代直白<span> —— 看名字就知道是什么，不搞 cosplay</span></p></div>
+    </div>
+  </div>
+</section>
+
+<section id="name">
+  <div class="wrap">
+    <p class="kicker">The Name</p>
+    <h2>枢机 × Cardinal：词源上的双胞胎</h2>
+    <p class="lead">这不是翻译，是两种语言沿着同一条构词路径，各自走到了同一个词。</p>
+    <div class="namegrid">
+      <div class="namecard">
+        <p class="lang">中文 · Chinese</p>
+        <p class="word red">枢机</p>
+        <p><b>户枢</b>（门轴）+ <b>弩机</b>（机关）——一切运转所系的关键、中枢。</p>
+      </div>
+      <div class="namecard">
+        <p class="lang">英文 · Latin → English</p>
+        <p class="word">Cardinal</p>
+        <p>拉丁语 <b>cardo</b>（门轴）→ cardinalis ——「万事所系于其上者」，引申为首要、根本。</p>
+      </div>
+    </div>
+    <p class="eq">门轴 ——→ 关键 ——→ 枢机 ＝ Cardinal</p>
+    <div class="birdnote">
+      <img src="favicon.svg" alt="Cardinal bird">
+      <p>红衣凤头鸟（Cardinal）因枢机主教的红袍得名，故徽记即此鸟。而它在本系统中的身份恰如其分：<b style="color:var(--text)">众仆之长</b>——最高的机关，服务于唯一的主宰。</p>
+    </div>
+  </div>
+</section>
+
+<section id="docs">
+  <div class="wrap">
+    <p class="kicker">Documents</p>
+    <h2>文档：读完即可接手</h2>
+    <div class="docs">
+      <a class="doc" href="https://4m9692y3g6zdz.doubao.link/app/app_17hb39p9gdc" target="_blank" rel="noopener">
+        <span><h4>多 Agent 舰队部署手册</h4><p>11 个阶段（00–10），每步带命令与验收标准</p></span><span class="arrow">→</span>
+      </a>
+      <a class="doc" href="https://4m9692y3g6zdz.doubao.link/app/app_17hb8aveamv" target="_blank" rel="noopener">
+        <span><h4>给其他 Agent 的交接文档</h4><p>最高原则 · 四层架构 · 安全红线 · 避坑清单 · 术语表</p></span><span class="arrow">→</span>
+      </a>
+      <a class="doc" href="https://4m9692y3g6zdz.doubao.link/app/app_17hb8avchb0" target="_blank" rel="noopener">
+        <span><h4>Agenos 对话全记录</h4><p>六个阶段的完整决策来龙去脉</p></span><span class="arrow">→</span>
+      </a>
+      <a class="doc" href="https://github.com/BitCook/Cardinal" target="_blank" rel="noopener">
+        <span><h4>GitHub 仓库</h4><p>本站源码 · logo.svg · favicon.svg</p></span><span class="arrow">→</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span><img class="bird" src="favicon.svg" alt=""> <b>Cardinal · 枢机</b> — Agenos 项目的控制面</span>
+    <span>Everything hinges on it. · © 2026 · Powered by GitHub Pages</span>
+  </div>
+</footer>
+
+</body>
+</html>
