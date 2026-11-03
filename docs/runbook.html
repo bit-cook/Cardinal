@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>多 Agent 舰队部署手册 — Cardinal · 枢机</title>
+<meta name="description" content="Agenos 部署手册：快速开始 5 步跑通最小链路，再按 11 个阶段（00–10）完成 Tailscale 组网、OpenClaw/Hermes 安装、Mission-Control 控制面、微信桥与命令路由、安全加固、端到端验收与回滚。">
+<link rel="icon" type="image/svg+xml" href="../favicon.svg">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="bar">
+    <a class="brand" href="../index.html"><img src="../favicon.svg" alt="">Cardinal<span class="zh">枢机</span></a>
+    <span class="crumb">/ 文档 / <b>部署手册</b></span>
+    <span class="sp"></span>
+    <a class="item" href="index.html">文档中心</a>
+    <a class="item" href="handover.html">交接文档</a>
+    <a class="item on" href="runbook.html">部署手册</a>
+    <a class="item" href="record.html">对话全记录</a>
+  </div>
+</nav>
+
+<header class="hero wrap">
+  <p class="kicker">Execute · 02</p>
+  <h1>多 Agent 舰队部署手册</h1>
+  <p class="sub">用最短路径先打通「微信 → 控制面 → 一台主机上的 Agent」，确认双向收发正常，再按阶段 00–10 做完整部署。每个阶段包含<b>目标、可复制的命令/配置、验收标准</b>。</p>
+  <div class="toc">
+    <a href="#qs">快速开始</a><a href="#s00">00 变量约定</a><a href="#s01">01 组网</a><a href="#s02">02 框架安装</a><a href="#s03">03 控制面</a><a href="#s04">04 OpenClaw 接入</a><a href="#s05">05 Hermes Sidecar</a><a href="#s06">06 微信桥</a><a href="#s07">07 命令路由</a><a href="#s08">08 安全加固</a><a href="#s09">09 端到端验收</a><a href="#s10">10 排查与回滚</a><a href="#appx">附录</a>
+  </div>
+</header>
+
+<main class="wrap">
+
+<section id="qs">
+  <p class="phno">Quick Start</p>
+  <h2>快速开始：5 步跑通最小链路</h2>
+  <ol class="steps">
+    <li><b>组网：</b>所有主机安装 Tailscale 并登录，确认能互相 ping 通（详见阶段 01）</li>
+    <li><b>装一个 Agent：</b>在主机 A 装好 OpenClaw 并启动，确认本机控制台可访问（阶段 02）</li>
+    <li><b>起控制面：</b>Docker 启动 Mission-Control，仅监听 Tailscale 网卡（阶段 03）</li>
+    <li><b>接微信：</b>部署微信桥与命令路由，配好白名单 <span class="mono">allowFrom</span>（阶段 06、07）</li>
+    <li><b>验证：</b>微信发送 <span class="mono">/list</span> 看到 Agent 在线，发送 <span class="mono">/ping</span> 收到回复，即跑通</li>
+  </ol>
+  <h3>快速通过标准</h3>
+  <ul class="list">
+    <li>微信 <span class="mono">/list</span> 能列出至少 1 个在线 Agent</li>
+    <li>微信 <span class="mono">/ping</span> 收到控制面回复，延迟正常</li>
+    <li>控制面端口不暴露公网，仅 Tailscale 可达</li>
+  </ul>
+</section>
+
+<section id="s00">
+  <p class="phno">Phase 00</p>
+  <h2>变量约定</h2>
+  <p><b>目标：</b>先把所有占位变量和主机角色定下来，后续命令直接替换，避免执行时临时猜测。</p>
+  <h3><span class="idx">0.1</span>主机清单（按实际情况填写）</h3>
+  <div class="tw"><table>
+    <tr><th>角色</th><th>主机名（规划）</th><th>运行组件</th><th>系统</th><th>Tailscale IP</th></tr>
+    <tr><td><b>主控机</b></td><td class="mono">mc-console</td><td>Mission-Control、命令路由、微信桥</td><td>Ubuntu 22.04+</td><td class="mono">100.x.x.10</td></tr>
+    <tr><td><b>主机 A</b></td><td class="mono">node-openclaw</td><td>OpenClaw Gateway</td><td>Ubuntu/Debian</td><td class="mono">100.x.x.11</td></tr>
+    <tr><td><b>主机 B</b></td><td class="mono">node-hermes</td><td>Hermes Agent + 心跳 Sidecar</td><td>Ubuntu/WSL2</td><td class="mono">100.x.x.12</td></tr>
+    <tr><td><b>主机 C</b></td><td class="mono">node-extra</td><td>其他 CLI Agent</td><td>Linux</td><td class="mono">100.x.x.13</td></tr>
+  </table></div>
+  <h3><span class="idx">0.2</span>全局变量（执行前导出或逐处替换）</h3>
+  <div class="code"><header><span class="lang">bash · 变量清单</span><button class="copybtn">复制</button></header>
+<pre># 管理面（主控机）
+MC_HOST="mc-console"                 # 主控机 Tailscale 主机名
+MC_BASE="http://mc-console:3000"     # 管理面内网地址
+MC_API_KEY="替换为强随机字符串"       # 管理面 API Key，openssl rand -hex 24 生成
+MC_ADMIN_PASS="替换为强密码"          # 管理面登录密码
+
+# 微信
+WECOM_CORP_ID="企业微信企业ID"
+WECOM_AGENT_ID="企业微信应用AgentId"
+WECOM_SECRET="企业微信应用Secret"
+WECHAT_ALLOW_FROM="你的微信/企微用户ID"  # 命令白名单，只允许本人
+
+# 路径
+MC_DATA_DIR="/opt/mission-control/data"
+BRIDGE_DIR="/opt/wechat-bridge"</pre></div>
+  <p class="dim">所有密钥只通过环境变量或受控配置文件注入，禁止写进会被打包发布的文件；本手册中的命令默认以具备 sudo 权限的普通用户执行。</p>
+</section>
+
+<section id="s01">
+  <p class="phno">Phase 01</p>
+  <h2>Tailscale 组网</h2>
+  <p><b>目标：</b>让所有主机在同一加密内网里互相可达，后续管理流量全部走内网，主机不向公网开放端口。</p>
+  <h3><span class="idx">1.1</span>每台主机安装并登录</h3>
+  <div class="code"><header><span class="lang">bash · 所有主机执行</span><button class="copybtn">复制</button></header>
+<pre>curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up --hostname=按0.1规划的主机名 --ssh
+# 打开输出的授权 URL，用同一 Tailscale 账号登录</pre></div>
+  <h3><span class="idx">1.2</span>开启 MagicDNS 与固定主机名</h3>
+  <p>在 Tailscale 管理后台 DNS 页面启用 MagicDNS；之后可直接用 <span class="mono">mc-console、node-openclaw</span> 这类主机名互访，无需记 IP。</p>
+  <h3><span class="idx">1.3</span>连通性测试（在主控机上）</h3>
+  <div class="code"><header><span class="lang">bash · 主控机</span><button class="copybtn">复制</button></header>
+<pre>tailscale status
+ping -c 2 node-openclaw
+ping -c 2 node-hermes</pre></div>
+  <ul class="list">
+    <li><span class="mono">tailscale status</span> 能看到全部主机且无离线节点</li>
+    <li>主控机 ping 通每台节点主机名，延迟正常</li>
+  </ul>
+</section>
+
+<section id="s02">
+  <p class="phno">Phase 02</p>
+  <h2>安装 OpenClaw 与 Hermes 本体</h2>
+  <p><b>目标：</b>在对应主机上把两个框架装好并以系统服务常驻，重启后自动拉起。</p>
+  <h3><span class="idx">2.1</span>主机 A：安装 OpenClaw</h3>
+  <div class="code"><header><span class="lang">bash · node-openclaw</span><button class="copybtn">复制</button></header>
+<pre>curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install.sh | bash
+openclaw onboard          # 按向导完成初始化与模型配置
+openclaw gateway start</pre></div>
+  <p class="dim">源码方式：<span class="mono">git clone https://github.com/openclaw/openclaw.git</span>，随后 <span class="mono">pnpm install &amp;&amp; pnpm build &amp;&amp; pnpm ui:build</span>。</p>
+  <h3><span class="idx">2.2</span>主机 B：安装 Hermes Agent</h3>
+  <div class="code"><header><span class="lang">bash · node-hermes</span><button class="copybtn">复制</button></header>
+<pre>curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
+hermes setup              # 配置模型 Provider 与工作目录
+hermes gateway status</pre></div>
+  <h3><span class="idx">2.3</span>配置 systemd 常驻（两台分别执行）</h3>
+  <div class="code"><header><span class="lang">ini · /etc/systemd/system/agent-gateway.service</span><button class="copybtn">复制</button></header>
+<pre>[Unit]
+Description=Agent Gateway
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/openclaw gateway start  # Hermes 主机改为 hermes gateway start 的绝对路径
+Restart=on-failure
+RestartSec=5
+User=%u
+
+[Install]
+WantedBy=multi-user.target</pre></div>
+  <div class="code"><header><span class="lang">bash · 启用服务</span><button class="copybtn">复制</button></header>
+<pre>sudo systemctl daemon-reload
+sudo systemctl enable --now agent-gateway
+systemctl status agent-gateway</pre></div>
+  <ul class="list">
+    <li>两个网关进程均为 <span class="mono">active (running)</span>，且 <span class="mono">enable</span> 已设置开机自启</li>
+    <li>各自 CLI 可正常对话，OpenClaw 控制台默认 <span class="mono">http://127.0.0.1:18789</span></li>
+  </ul>
+</section>
+
+<section id="s03">
+  <p class="phno">Phase 03</p>
+  <h2>部署 Mission-Control 管理面</h2>
+  <p><b>目标：</b>在主控机跑起管理面，数据持久化到固定目录，仅通过 Tailscale 内网访问。</p>
+  <h3><span class="idx">3.1</span>准备目录与环境变量</h3>
+  <div class="code"><header><span class="lang">bash · mc-console</span><button class="copybtn">复制</button></header>
+<pre>sudo mkdir -p /opt/mission-control/data
+sudo chown "$USER":"$USER" /opt/mission-control/data
+cd /opt/mission-control
+openssl rand -hex 24   # 生成 API Key，记下备用</pre></div>
+  <div class="code"><header><span class="lang">ini · /opt/mission-control/.env</span><button class="copybtn">复制</button></header>
+<pre>AUTH_PASS=替换为强密码
+API_KEY=替换为上一步生成的Key
+MISSION_CONTROL_DATA_DIR=/opt/mission-control/data
+MC_ALLOWED_HOSTS=mc-console,mc-console.你的tailnet
+PORT=3000</pre></div>
+  <h3><span class="idx">3.2</span>Docker Compose 启动（推荐）</h3>
+  <div class="code"><header><span class="lang">yaml · /opt/mission-control/docker-compose.yml</span><button class="copybtn">复制</button></header>
+<pre>services:
+  mission-control:
+    image: ghcr.io/builderz-labs/mission-control:latest
+    env_file: .env
+    ports:
+      - "100.x.x.10:3000:3000"   # 只绑 Tailscale 网卡，不监听公网
+    volumes:
+      - ./data:/data
+    restart: unless-stopped</pre></div>
+  <div class="code"><header><span class="lang">bash · 启动</span><button class="copybtn">复制</button></header>
+<pre>docker compose up -d
+docker compose logs -f --tail=50</pre></div>
+  <p class="dim">无 Docker 环境的替代路径：克隆仓库后执行 <span class="mono">bash install.sh --local</span>，SQLite 单文件、无需额外数据库。</p>
+  <ul class="list">
+    <li>主控机浏览器打开 <span class="mono">http://mc-console:3000</span> 出现登录页并能登录</li>
+    <li>公网 IP 的 3000 端口不可达（<span class="mono">ss -tlnp</span> 确认仅绑 Tailscale 地址）</li>
+    <li>重启主控机后容器自动恢复，历史数据仍在</li>
+  </ul>
+</section>
+
+<section id="s04">
+  <p class="phno">Phase 04</p>
+  <h2>OpenClaw 原生接入</h2>
+  <p><b>目标：</b>利用原生适配器把主机 A 的 OpenClaw 注册进管理面，心跳与任务自动上报。</p>
+  <h3><span class="idx">4.1</span>面板注册适配器</h3>
+  <p>在管理面 Agents 页面选择框架类型 <b>OpenClaw</b>，填写连接信息；管理面通过读取 OpenClaw 状态目录获取会话与任务，状态目录必须使用绝对路径。</p>
+  <div class="code"><header><span class="lang">bash · node-openclaw 确认状态目录</span><button class="copybtn">复制</button></header>
+<pre>echo $OPENCLAW_STATE_DIR
+ls -la "$OPENCLAW_STATE_DIR"
+# 若为空或相对路径，写入 service 环境文件并设为绝对路径，例如：
+export OPENCLAW_STATE_DIR="$HOME/.openclaw/state"</pre></div>
+  <h3><span class="idx">4.2</span>放行管理面回调</h3>
+  <div class="code"><header><span class="lang">bash · node-openclaw</span><button class="copybtn">复制</button></header>
+<pre># 主机防火墙仅允许主控机 Tailscale 地址访问网关端口
+sudo ufw allow from 100.x.x.10 to any port 18789 proto tcp
+sudo ufw reload</pre></div>
+  <ul class="list">
+    <li>面板 Agents 列表出现该 OpenClaw，心跳为在线，模型与工作区信息正确</li>
+    <li>在 OpenClaw 执行一次任务后，面板任务历史出现对应记录</li>
+  </ul>
+  <div class="note"><p class="lab">排错</p><p>注册后立即显示离线，多半是状态目录用了相对路径或目录权限不对；改为绝对路径并确认网关进程有读写权限后重启服务。</p></div>
+</section>
+
+<section id="s05">
+  <p class="phno">Phase 05</p>
+  <h2>Hermes 心跳 Sidecar 接入</h2>
+  <p><b>目标：</b>Hermes 暂无原生适配器，用一个仅依赖标准库的 Python Sidecar，周期性采集 Hermes 状态并按 generic 协议向管理面发心跳。</p>
+  <h3><span class="idx">5.1</span>Sidecar 脚本</h3>
+  <div class="code"><header><span class="lang">python · /opt/hermes-sidecar/sidecar.py</span><button class="copybtn">复制</button></header>
+<pre>#!/usr/bin/env python3
+"""Hermes -&gt; Mission-Control generic 心跳上报，仅用标准库。"""
+import json, os, subprocess, time, urllib.request, urllib.error
+
+MC_BASE = os.environ["MC_BASE"]            # http://mc-console:3000
+MC_API_KEY = os.environ["MC_API_KEY"]
+AGENT_ID = os.environ.get("AGENT_ID", "hermes-node-b")
+HERMES_RPC = os.environ.get("HERMES_RPC", "http://127.0.0.1:8765/status")
+INTERVAL = int(os.environ.get("INTERVAL", "300"))   # 5 分钟
+
+def fetch_hermes():
+    try:
+        with urllib.request.urlopen(HERMES_RPC, timeout=10) as r:
+            data = json.loads(r.read().decode())
+        return "online", data
+    except Exception:
+        # RPC 不可用时退化为检查 systemd 服务状态
+        out = subprocess.run(["systemctl", "is-active", "agent-gateway"],
+                             capture_output=True, text=True)
+        return ("online" if out.stdout.strip() == "active" else "offline"), {}
+
+def heartbeat():
+    status, extra = fetch_hermes()
+    body = {
+        "framework": "generic",
+        "action": "heartbeat",
+        "payload": {
+            "agentId": AGENT_ID,
+            "status": status,
+            "reportedAt": int(time.time()),
+            "detail": extra,
+        },
+    }
+    req = urllib.request.Request(
+        MC_BASE + "/api/agents/heartbeat",
+        data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json",
+                 "Authorization": "Bearer " + MC_API_KEY},
+        method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            print("heartbeat ok:", r.status)
+    except urllib.error.URLError as e:
+        print("heartbeat failed:", e)
+
+if __name__ == "__main__":
+    while True:
+        heartbeat()
+        time.sleep(INTERVAL)</pre></div>
+  <h3><span class="idx">5.2</span>环境变量与 systemd 常驻</h3>
+  <div class="code"><header><span class="lang">ini · /etc/hermes-sidecar.env</span><button class="copybtn">复制</button></header>
+<pre>MC_BASE=http://mc-console:3000
+MC_API_KEY=替换为管理面APIKey
+AGENT_ID=hermes-node-b
+HERMES_RPC=http://127.0.0.1:8765/status
+INTERVAL=300</pre></div>
+  <div class="code"><header><span class="lang">ini · /etc/systemd/system/hermes-sidecar.service</span><button class="copybtn">复制</button></header>
+<pre>[Unit]
+Description=Hermes Heartbeat Sidecar
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/hermes-sidecar.env
+ExecStart=/usr/bin/python3 /opt/hermes-sidecar/sidecar.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target</pre></div>
+  <div class="code"><header><span class="lang">bash · 启动</span><button class="copybtn">复制</button></header>
+<pre>sudo systemctl daemon-reload
+sudo systemctl enable --now hermes-sidecar
+journalctl -u hermes-sidecar -n 20 --no-pager</pre></div>
+  <ul class="list">
+    <li>日志出现 <span class="mono">heartbeat ok: 2xx</span>，无持续失败</li>
+    <li>面板出现 <span class="mono">hermes-node-b</span> 且状态在线；停掉 Hermes 后下一个周期内转为离线</li>
+  </ul>
+</section>
+
+<section id="s06">
+  <p class="phno">Phase 06</p>
+  <h2>微信桥</h2>
+  <p><b>目标：</b>建立微信侧的消息通道。二选一：<b>企业微信自建应用</b>（合规稳定，首选）或 <b>Gewechat 个人微信</b>（扫码即用，需小号）。</p>
+  <h3><span class="idx">A</span>路线 A：企业微信自建应用（推荐）</h3>
+  <div class="code"><header><span class="lang">bash · 主控机配置清单</span><button class="copybtn">复制</button></header>
+<pre># 1. 企业微信管理后台 -&gt; 应用管理 -&gt; 创建自建应用，记录：
+WECOM_CORP_ID=企业ID
+WECOM_AGENT_ID=应用AgentId
+WECOM_SECRET=应用Secret
+# 2. 应用"接收消息"设置回调：URL/Token/EncodingAESKey
+#    回调需公网可达；不想暴露公网可用官方 WebSocket SDK 长连接模式
+# 3. "企业可信IP"加入主控机公网出口IP，否则主动发消息会被拒</pre></div>
+  <p class="dim">只想在群里收告警、不发命令的轻量场景，可直接用企业微信群机器人 Webhook（仅单向推送）。</p>
+  <h3><span class="idx">B</span>路线 B：Gewechat 个人微信</h3>
+  <div class="code"><header><span class="lang">yaml · /opt/gewechat/docker-compose.yml</span><button class="copybtn">复制</button></header>
+<pre>services:
+  gewechat:
+    image: gewechat/gewechat:latest
+    ports:
+      - "127.0.0.1:2531:2531"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped</pre></div>
+  <div class="code"><header><span class="lang">bash · 启动并扫码</span><button class="copybtn">复制</button></header>
+<pre>docker compose up -d
+# 浏览器打开 http://主控机IP:2531 查看二维码，用微信小号扫码登录
+# 登录成功后保持会话，对外提供 HTTP API，命令路由通过该 API 收发消息</pre></div>
+  <p class="dim">个人微信协议类方案存在封号可能，必须使用小号、控制消息频率；生产用途优先企业微信。Gewechat 端口只绑 127.0.0.1，通过 Tailscale 访问，不直接暴露公网。</p>
+  <div class="note">
+    <p class="lab">勘注 · 2026-11</p>
+    <p>社区反馈 <b>Gewechat 原项目已宣布终止维护、无法登录</b>（AstrBot issue #1443，2025-04），且镜像名/端口可能与上文不符。执行本阶段前先实测路线 B 是否可用；<b>优先走路线 A（企业微信）</b>，不可用时评估飞书 / 钉钉 / Telegram 官方机器人作为替代入口。</p>
+  </div>
+</section>
+
+<section id="s07">
+  <p class="phno">Phase 07</p>
+  <h2>命令路由</h2>
+  <p><b>目标：</b>把微信文本命令翻译成管理面 REST 调用，并把结果格式化回推；核心逻辑平台无关，企微与 Gewechat 仅入口适配不同。</p>
+  <h3><span class="idx">7.1</span>命令协议（微信直接发送文本）</h3>
+  <div class="tw"><table>
+    <tr><th>命令</th><th>含义</th><th>管理面动作</th></tr>
+    <tr><td class="mono">/ping</td><td>链路自检</td><td>固定返回 pong 与时间戳</td></tr>
+    <tr><td class="mono">/list</td><td>全部 Agent 状态</td><td class="mono">GET /api/agents</td></tr>
+    <tr><td class="mono">/status &lt;id&gt;</td><td>单个 Agent 详情</td><td class="mono">GET /api/agents/&lt;id&gt;</td></tr>
+    <tr><td class="mono">/tasks &lt;id&gt;</td><td>最近任务</td><td class="mono">GET /api/agents/&lt;id&gt;/tasks</td></tr>
+    <tr><td class="mono">/cost</td><td>Token 成本汇总</td><td class="mono">GET /api/costs/summary</td></tr>
+    <tr><td class="mono">/dispatch &lt;id&gt; &lt;任务&gt;</td><td>下发任务</td><td class="mono">POST /api/tasks</td></tr>
+  </table></div>
+  <h3><span class="idx">7.2</span>路由服务完整脚本（纯 Node，无第三方依赖）</h3>
+  <div class="code"><header><span class="lang">javascript · /opt/wechat-bridge/bridge.js</span><button class="copybtn">复制</button></header>
+<pre>#!/usr/bin/env node
+// 平台无关的命令处理核心；入口适配见文件末尾说明。
+const http = require("http");
+
+const MC_BASE = process.env.MC_BASE;                 // http://mc-console:3000
+const MC_API_KEY = process.env.MC_API_KEY;
+const ALLOW_FROM = (process.env.WECHAT_ALLOW_FROM || "").split(",").map(s =&gt; s.trim());
+
+function mcRequest(path, method = "GET", body = null) {
+  return new Promise((resolve, reject) =&gt; {
+    const url = new URL(MC_BASE + path);
+    const data = body ? JSON.stringify(body) : null;
+    const req = http.request(url, {
+      method,
+      headers: {
+        "Authorization": "Bearer " + MC_API_KEY,
+        "Content-Type": "application/json",
+        ...(data ? {"Content-Length": Buffer.byteLength(data)} : {})
+      }
+    }, res =&gt; {
+      let chunks = "";
+      res.on("data", d =&gt; chunks += d);
+      res.on("end", () =&gt; {
+        try { resolve(JSON.parse(chunks)); }
+        catch { resolve(chunks); }
+      });
+    });
+    req.on("error", reject);
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+async function handleCommand(text, fromUser) {
+  if (!ALLOW_FROM.includes(fromUser)) return "拒绝访问：不在白名单内";
+  const parts = text.trim().split(/\s+/);
+  const cmd = parts[0];
+  try {
+    switch (cmd) {
+      case "/ping":
+        return "pong · " + new Date().toISOString();
+      case "/list": {
+        const agents = await mcRequest("/api/agents");
+        return (Array.isArray(agents) ? agents : agents.data || [])
+          .map(a =&gt; `${a.agentId || a.id} [${a.status}] ${a.model || ""}`).join("\n");
+      }
+      case "/status":
+        return JSON.stringify(await mcRequest(`/api/agents/${parts[1]}`), null, 2);
+      case "/tasks":
+        return JSON.stringify(await mcRequest(`/api/agents/${parts[1]}/tasks`), null, 2);
+      case "/cost":
+        return JSON.stringify(await mcRequest("/api/costs/summary"), null, 2);
+      case "/dispatch": {
+        const [, agentId, ...taskParts] = parts;
+        const task = {agentId, title: taskParts.join(" "), createdAt: Date.now()};
+        const r = await mcRequest("/api/tasks", "POST", task);
+        return "已下发：" + JSON.stringify(r);
+      }
+      default:
+        return "未知命令。支持：/ping /list /status /tasks /cost /dispatch";
+    }
+  } catch (e) {
+    return "处理失败：" + e.message;
+  }
+}
+
+// 入口适配：
+// 企业微信 -&gt; 用官方 SDK 起 HTTP 回调或 WebSocket 长连接，
+//   收到消息后调用 handleCommand(text, fromUser)，再用应用消息接口回推；
+// Gewechat -&gt; 轮询其 HTTP API 拉取新消息，同样调用 handleCommand，
+//   再调 Gewechat 发送接口回推。
+module.exports = {handleCommand};</pre></div>
+  <h3><span class="idx">7.3</span>systemd 常驻</h3>
+  <div class="code"><header><span class="lang">ini · /etc/systemd/system/wechat-bridge.service</span><button class="copybtn">复制</button></header>
+<pre>[Unit]
+Description=WeChat Command Bridge
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/opt/wechat-bridge/.env
+ExecStart=/usr/bin/node /opt/wechat-bridge/bridge.js
+Restart=on-failure
+RestartSec=8
+
+[Install]
+WantedBy=multi-user.target</pre></div>
+  <ul class="list">
+    <li>微信发送 <span class="mono">/ping</span> 收到 pong；非白名单用户发消息被拒</li>
+    <li><span class="mono">/list</span> 能返回两个框架全部实例的在线状态</li>
+    <li><span class="mono">/dispatch</span> 下发后，目标 Agent 面板出现对应任务</li>
+  </ul>
+</section>
+
+<section id="s08">
+  <p class="phno">Phase 08</p>
+  <h2>安全加固</h2>
+  <p><b>目标：</b>在正式使用前逐项关闭默认风险，所有条目可独立验证。</p>
+  <ul class="list">
+    <li>管理面默认密码与 API Key 全部更换为强随机值，不复用安装器生成值</li>
+    <li>管理面与微信桥端口仅绑定 Tailscale 网卡或 127.0.0.1，公网不可达</li>
+    <li>设置 <span class="mono">MC_ALLOWED_HOSTS</span> 白名单，防止 Host 头伪造</li>
+    <li>微信命令白名单只保留本人 ID，危险操作（dispatch/restart）加二次确认</li>
+    <li>各主机防火墙默认拒绝入站，仅放行 Tailscale 与明确授权的内网来源</li>
+    <li>Sidecar 与 Bridge 使用最小权限专用账号运行，禁止 root 常驻</li>
+    <li>密钥统一放 EnvironmentFile 并收紧权限（<span class="mono">chmod 600</span>），不入库不入镜像</li>
+    <li>开启管理面审计日志，定期核对 MCP 调用与注入尝试记录</li>
+    <li>主机开启自动安全更新，Tailscale 与各组件保持在受支持版本</li>
+  </ul>
+</section>
+
+<section id="s09">
+  <p class="phno">Phase 09</p>
+  <h2>端到端验收</h2>
+  <p><b>目标：</b>按下列用例从微信侧完整走一遍，全部通过才算交付完成；每条都给出预期结果。</p>
+  <div class="tw"><table>
+    <tr><th>编号</th><th>操作</th><th>预期结果</th><th>类型</th></tr>
+    <tr><td class="mono">T1</td><td>微信发送 /ping</td><td>收到 pong 与时间戳</td><td>链路</td></tr>
+    <tr><td class="mono">T2</td><td>非白名单账号发任意消息</td><td>返回拒绝访问，无命令执行</td><td>安全</td></tr>
+    <tr><td class="mono">T3</td><td>发送 /list</td><td>列出全部实例，两个框架节点均在线</td><td>状态</td></tr>
+    <tr><td class="mono">T4</td><td>手动停掉 Hermes 网关</td><td>一个心跳周期内面板与 /list 显示离线</td><td>告警</td></tr>
+    <tr><td class="mono">T5</td><td>恢复 Hermes 后 /status hermes-node-b</td><td>状态恢复 online，详情可读</td><td>恢复</td></tr>
+    <tr><td class="mono">T6</td><td>发送 /cost</td><td>返回 Token 成本汇总，数字非空</td><td>计量</td></tr>
+    <tr><td class="mono">T7</td><td>/dispatch 给 OpenClaw 下发测试任务</td><td>面板出现任务，Agent 执行并可查结果</td><td>调度</td></tr>
+    <tr><td class="mono">T8</td><td>主控机与节点分别重启</td><td>所有服务自动拉起，数据不丢失</td><td>韧性</td></tr>
+  </table></div>
+</section>
+
+<section id="s10">
+  <p class="phno">Phase 10</p>
+  <h2>故障排查与回滚</h2>
+  <p><b>目标：</b>常见问题按表定位；需要撤销时按回滚顺序操作，数据先备份再拆除。</p>
+  <h3><span class="idx">10.1</span>故障排查表</h3>
+  <div class="tw"><table>
+    <tr><th>现象</th><th>可能原因</th><th>处理</th></tr>
+    <tr><td>Agent 持续显示离线</td><td>心跳未到达：网络不通或服务未运行</td><td>查 sidecar 日志、ping 主控机、确认 systemd 状态</td></tr>
+    <tr><td>心跳返回 401/403</td><td>API Key 不一致或无权限</td><td>核对 EnvironmentFile 与管理面 Key，重新加载服务</td></tr>
+    <tr><td>微信发消息无回应</td><td>回调失效/可信 IP 未配/白名单不匹配</td><td>检查企微回调与可信 IP、桥服务日志、用户 ID</td></tr>
+    <tr><td>Gewechat 掉线</td><td>会话失效或被风控</td><td>重新扫码，降低频率，必要时更换小号</td></tr>
+    <tr><td>任务下发失败</td><td>agentId 错误或目标网关离线</td><td>先 /list 确认 ID 与在线状态再下发</td></tr>
+    <tr><td>成本数据为空</td><td>适配器未上报用量</td><td>确认状态目录绝对路径，重启对应网关</td></tr>
+  </table></div>
+  <h3><span class="idx">10.2</span>回滚顺序（保留数据）</h3>
+  <div class="code"><header><span class="lang">bash · 逐机执行</span><button class="copybtn">复制</button></header>
+<pre># 1. 先备份数据
+sudo tar -czf ~/fleet-backup-$(date +%F).tgz \
+  /opt/mission-control/data /opt/wechat-bridge /opt/hermes-sidecar
+# 2. 停用上层服务
+sudo systemctl disable --now wechat-bridge hermes-sidecar
+cd /opt/mission-control &amp;&amp; docker compose down   # 不加 -v，保留数据卷
+# 3. 停用各机网关并退出 Tailscale（如需彻底拆除）
+sudo systemctl disable --now agent-gateway
+sudo tailscale down</pre></div>
+</section>
+
+<section id="appx">
+  <p class="phno">Appendix</p>
+  <h2>附录：项目地址</h2>
+  <div class="tw"><table>
+    <tr><th>项目</th><th>地址</th></tr>
+    <tr><td><b>OpenClaw</b></td><td><span class="mono">https://github.com/openclaw/openclaw</span></td></tr>
+    <tr><td><b>Hermes Agent</b></td><td><span class="mono">https://github.com/NousResearch/hermes-agent</span></td></tr>
+    <tr><td><b>Mission-Control</b></td><td><span class="mono">https://github.com/builderz-labs/mission-control</span></td></tr>
+    <tr><td><b>Gewechat</b></td><td><span class="mono">https://github.com/Devo919/Gewechat</span></td></tr>
+    <tr><td><b>Tailscale</b></td><td><span class="mono">https://tailscale.com/download</span></td></tr>
+  </table></div>
+</section>
+
+<div class="pager">
+  <a href="handover.html"><p class="dir">← Prev</p><p class="ttl">给其他 Agent 的交接文档</p></a>
+  <a class="next" href="record.html"><p class="dir">Next →</p><p class="ttl">Agenos 项目对话全记录</p></a>
+</div>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Cardinal · 枢机 — Agenos 项目的控制面</span>
+    <span><a href="../index.html">官网</a> · <a href="https://github.com/bit-cook/Cardinal" target="_blank" rel="noopener">GitHub</a></span>
+  </div>
+</footer>
+
+<script>
+document.addEventListener("click", function(e){
+  var b = e.target.closest(".copybtn");
+  if(!b) return;
+  var pre = b.closest(".code").querySelector("pre");
+  navigator.clipboard.writeText(pre.innerText).then(function(){
+    b.textContent = "已复制 ✓"; b.classList.add("ok");
+    setTimeout(function(){ b.textContent = "复制"; b.classList.remove("ok"); }, 1600);
+  });
+});
+</script>
+
+</body>
+</html>
