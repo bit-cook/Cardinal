@@ -25,7 +25,7 @@
 <header class="hero wrap">
   <p class="kicker">Read First · 01</p>
   <h1>给其他 Agent 的交接文档</h1>
-  <p class="sub">本项目代号 <b>Agenos</b>，定位是一个 <b>Agent OS</b>：把分散在不同主机上的 Hermes、OpenClaw 等异构 Agent 纳管到一个控制面，用户通过微信发命令、收状态。控制面品牌名为 <b>Cardinal（枢机）</b>。</p>
+  <p class="sub">本项目代号 <b>Agenos</b>，定位是一个 <b>Agent OS</b>：把分散在不同主机上的 Hermes、OpenClaw 等异构 Agent 纳管到一个控制面，用户通过<b>微信（OpenClaw ClawBot）或 Telegram</b> 发命令、收状态。控制面品牌名为 <b>Cardinal（枢机）</b>。</p>
   <div class="toc">
     <a href="#s01">01 最高原则</a><a href="#s02">02 四层架构</a><a href="#s03">03 技术选型</a><a href="#s04">04 命名规范</a><a href="#s05">05 部署入口</a><a href="#s06">06 安全红线</a><a href="#s07">07 项目地址</a><a href="#s08">08 避坑清单</a><a href="#s09">09 命名方法论</a><a href="#s10">10 术语表</a>
   </div>
@@ -51,8 +51,8 @@
   <p>系统由四层组成，<b>数据自下而上回报、命令自上而下下达</b>：</p>
   <div class="tw"><table>
     <tr><th>层</th><th>组件</th><th>职责</th></tr>
-    <tr><td><b>入口层</b></td><td>微信（企业微信 / 个人微信）</td><td>用户发命令、收状态的唯一人机入口</td></tr>
-    <tr><td><b>网关层</b></td><td>微信桥 + 命令路由</td><td>消息收发、白名单校验、命令归一、危险操作二次确认</td></tr>
+    <tr><td><b>入口层</b></td><td>微信（ClawBot / iLink）· Telegram</td><td>用户发命令、收状态的唯一人机入口</td></tr>
+    <tr><td><b>网关层</b></td><td>入口适配 + 命令路由</td><td>消息收发、白名单校验、命令归一、危险操作二次确认</td></tr>
     <tr><td><b>控制面</b></td><td>Mission-Control</td><td>Agent 注册、心跳、任务、日志、成本、审计，提供 REST API/Webhook</td></tr>
     <tr><td><b>节点层</b></td><td>各主机上的 Agent</td><td>OpenClaw 原生接入；Hermes 经心跳 Sidecar 接入；其他 CLI 走 generic</td></tr>
   </table></div>
@@ -67,7 +67,7 @@
     <tr><td><b>Mission-Control</b></td><td>MIT / Node</td><td>中央管理面，101 个 REST API + Webhook，SQLite 单文件，约 50 Agent 上限，原生适配 OpenClaw，Hermes 走 generic 心跳</td></tr>
     <tr><td><b>OpenClaw</b></td><td>MIT / Node、pnpm</td><td>节点 Agent，控制台默认 <span class="mono">127.0.0.1:18789</span>，由 Mission-Control 原生适配接入</td></tr>
     <tr><td><b>Hermes Agent</b></td><td>MIT / Python</td><td>Nous Research 出品，支持 Linux/macOS/WSL2，无原生适配，通过心跳 Sidecar 上报</td></tr>
-    <tr><td><b>微信桥</b></td><td>Docker</td><td>企业微信自建应用（合规，推荐）；个人微信用 Gewechat（镜像端口 2531，有封号风险）。命令路由与 Sidecar 的正式实现已入库 <span class="mono">github.com/bit-cook/shuji</span>（<span class="mono">packages/wechat-bridge</span>、<span class="mono">packages/hermes-sidecar</span>），含二次确认、审计日志、单测与 CI</td></tr>
+    <tr><td><b>入口适配</b></td><td>Node / Python</td><td>微信：OpenClaw 官方 <span class="mono">@tencent-weixin/openclaw-weixin</span>（ClawBot，iLink 协议，仅私聊）+ 枢机 <span class="mono">cardinal-bridge</span> 插件（<span class="mono">before_agent_reply</span> 钩子，命令不走模型）；Telegram：Bot API 长轮询；企业微信自建应用为可选备选。命令路由正式实现已入库 <span class="mono">github.com/bit-cook/shuji</span>（<span class="mono">packages/wechat-bridge</span>、<span class="mono">packages/openclaw-cardinal-plugin</span>、<span class="mono">packages/hermes-sidecar</span>），含二次确认、审计日志、单测与 CI</td></tr>
     <tr><td><b>Tailscale</b></td><td>组网</td><td>跨主机加密内网，MagicDNS 固定主机名，端口不暴露公网</td></tr>
   </table></div>
 </section>
@@ -79,7 +79,7 @@
   <div class="tw"><table>
     <tr><th>现代术语（为准）</th><th>含义</th></tr>
     <tr><td><b>控制面 / 控制台</b></td><td>Mission-Control 中央管理面</td></tr>
-    <tr><td><b>网关 / 微信桥</b></td><td>消息出入与命令路由组件</td></tr>
+    <tr><td><b>网关 / 入口适配</b></td><td>消息出入与命令路由组件</td></tr>
     <tr><td><b>节点</b></td><td>一台主机及其上的 Agent 实例</td></tr>
     <tr><td><b>适配器 / Sidecar</b></td><td>框架接入与心跳上报组件</td></tr>
     <tr><td><b>命令路由 / 审计</b></td><td>命令归一、白名单与安全审计</td></tr>
@@ -96,8 +96,8 @@
     <li>所有主机装 Tailscale 并互相 ping 通</li>
     <li>主机 A 装好 OpenClaw 并启动</li>
     <li>Docker 启动 Mission-Control，仅监听 Tailscale 网卡</li>
-    <li>部署微信桥与命令路由，配好白名单</li>
-    <li>微信发 <span class="mono">/list</span> 看到 Agent 在线、<span class="mono">/ping</span> 收到回复，即跑通</li>
+    <li>部署命令路由与入口适配（OpenClaw 插件 / Telegram），配好白名单</li>
+    <li>微信（或 Telegram）发 <span class="mono">/list</span> 看到 Agent 在线、<span class="mono">/ping</span> 收到回复，即跑通</li>
   </ol>
 </section>
 
@@ -106,21 +106,21 @@
   <h2>安全红线</h2>
   <h3>必须遵守</h3>
   <ul class="list">
-    <li>命令入口白名单 <span class="mono">allowFrom</span>，只保留用户本人 ID（微信 ID：<span class="mono">callgoodman</span>）</li>
+    <li>命令入口白名单 <span class="mono">allowFrom</span>，只保留用户本人 ID（微信 ID / Telegram 数字 ID）</li>
     <li>危险命令（重启、删除、下发任务等）必须二次确认后才执行</li>
     <li>密钥统一走环境变量 / EnvironmentFile，权限 <span class="mono">chmod 600</span>，不入库、不入镜像</li>
-    <li>控制面与网关端口只监听 Tailscale 或 127.0.0.1，禁止暴露公网</li>
+    <li>控制面与网关端口只监听 Tailscale 或 127.0.0.1，禁止暴露公网；Telegram 入口走长轮询出站，不监听端口</li>
     <li>Sidecar 与桥使用最小权限专用账号运行，禁止 root 常驻</li>
   </ul>
   <h3>风险提示</h3>
   <ul class="list">
-    <li>个人微信协议/hook 有封号风险：须用小号、控制频率，优先企业微信自建应用</li>
+    <li>微信 ClawBot 为腾讯官方通道，仅支持私聊；群聊命令需求走企业微信自建应用</li>
     <li>企业微信需配置可信 IP 与回调，或用官方 WebSocket SDK 免公网回调</li>
     <li>群机器人 Webhook 仅支持单向推送，不能用于接收命令</li>
   </ul>
   <div class="note">
     <p class="lab">勘注 · 2026-11</p>
-    <p>社区反馈 <b>Gewechat 原项目已宣布终止维护、无法登录</b>（AstrBot issue #1443，2025-04），且非真正开源、存在信息泄露风险。个人微信路线使用前务必先验证可用性；<b>优先企业微信自建应用</b>，走不通可评估飞书 / 钉钉 / Telegram 官方机器人作为替代入口。</p>
+    <p>微信主线已定为 <b>OpenClaw ClawBot</b>（腾讯官方 iLink 通道，<span class="mono">@tencent-weixin/openclaw-weixin</span>）+ 枢机 <span class="mono">cardinal-bridge</span> 插件。<b>Gewechat 已宣布终止维护、无法登录</b>（AstrBot issue #1443，2025-04），不再推荐。企业微信自建应用保留为可选备选。</p>
   </div>
 </section>
 
@@ -134,7 +134,7 @@
     <tr><td><b>OpenClaw</b></td><td><span class="mono">github.com/openclaw/openclaw</span> ；官网 <span class="mono">openclaw.ai</span></td></tr>
     <tr><td><b>Hermes Agent</b></td><td><span class="mono">github.com/NousResearch/hermes-agent</span></td></tr>
     <tr><td><b>Mission-Control</b></td><td><span class="mono">github.com/builderz-labs/mission-control</span></td></tr>
-    <tr><td><b>Gewechat</b></td><td><span class="mono">github.com/Devo919/Gewechat</span></td></tr>
+    <tr><td><b>微信 ClawBot 插件</b></td><td><span class="mono">@tencent-weixin/openclaw-weixin</span>（腾讯官方，iLink 协议）</td></tr>
     <tr><td><b>OpenLegion</b></td><td><span class="mono">github.com/openlegion-ai/openlegion</span>（PolyForm 许可，非 MIT）</td></tr>
     <tr><td><b>Tailscale</b></td><td><span class="mono">tailscale.com/download</span></td></tr>
   </table></div>
@@ -168,7 +168,7 @@
     <tr><th>术语</th><th>解释</th></tr>
     <tr><td><b>Agent OS</b></td><td>统一纳管、调度多 Agent 的操作系统层，本项目即 Agenos</td></tr>
     <tr><td><b>控制面</b></td><td>中央管理面 Mission-Control，负责注册、心跳、任务、审计</td></tr>
-    <tr><td><b>网关 / 微信桥</b></td><td>连接微信与控制面，负责消息收发与命令路由</td></tr>
+    <tr><td><b>网关 / 入口适配</b></td><td>连接微信/Telegram 与控制面，负责消息收发与命令路由</td></tr>
     <tr><td><b>节点</b></td><td>一台主机及其上运行的 Agent 实例</td></tr>
     <tr><td><b>Sidecar</b></td><td>伴生进程，为无原生适配的框架（如 Hermes）上报心跳</td></tr>
     <tr><td><b>allowFrom</b></td><td>命令来源白名单，只接受用户本人</td></tr>

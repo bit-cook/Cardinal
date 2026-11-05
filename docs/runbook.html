@@ -27,7 +27,7 @@
   <h1>多 Agent 舰队部署手册</h1>
   <p class="sub">用最短路径先打通「微信 → 控制面 → 一台主机上的 Agent」，确认双向收发正常，再按阶段 00–10 做完整部署。每个阶段包含<b>目标、可复制的命令/配置、验收标准</b>。</p>
   <div class="toc">
-    <a href="#qs">快速开始</a><a href="#s00">00 变量约定</a><a href="#s01">01 组网</a><a href="#s02">02 框架安装</a><a href="#s03">03 控制面</a><a href="#s04">04 OpenClaw 接入</a><a href="#s05">05 Hermes Sidecar</a><a href="#s06">06 微信桥</a><a href="#s07">07 命令路由</a><a href="#s08">08 安全加固</a><a href="#s09">09 端到端验收</a><a href="#s10">10 排查与回滚</a><a href="#appx">附录</a>
+    <a href="#qs">快速开始</a><a href="#s00">00 变量约定</a><a href="#s01">01 组网</a><a href="#s02">02 框架安装</a><a href="#s03">03 控制面</a><a href="#s04">04 OpenClaw 接入</a><a href="#s05">05 Hermes Sidecar</a><a href="#s06">06 微信入口</a><a href="#s07">07 命令路由</a><a href="#s08">08 安全加固</a><a href="#s09">09 端到端验收</a><a href="#s10">10 排查与回滚</a><a href="#appx">附录</a>
   </div>
 </header>
 
@@ -40,8 +40,8 @@
     <li><b>组网：</b>所有主机安装 Tailscale 并登录，确认能互相 ping 通（详见阶段 01）</li>
     <li><b>装一个 Agent：</b>在主机 A 装好 OpenClaw 并启动，确认本机控制台可访问（阶段 02）</li>
     <li><b>起控制面：</b>Docker 启动 Mission-Control，仅监听 Tailscale 网卡（阶段 03）</li>
-    <li><b>接微信：</b>部署微信桥与命令路由，配好白名单 <span class="mono">allowFrom</span>（阶段 06、07）</li>
-    <li><b>验证：</b>微信发送 <span class="mono">/list</span> 看到 Agent 在线，发送 <span class="mono">/ping</span> 收到回复，即跑通</li>
+    <li><b>接入口：</b>部署命令路由与入口适配（OpenClaw 插件 / Telegram），配好白名单 <span class="mono">allowFrom</span>（阶段 06、07）</li>
+    <li><b>验证：</b>微信（或 Telegram）发送 <span class="mono">/list</span> 看到 Agent 在线，发送 <span class="mono">/ping</span> 收到回复，即跑通</li>
   </ol>
   <h3>快速通过标准</h3>
   <ul class="list">
@@ -75,7 +75,9 @@ MC_ADMIN_PASS="替换为强密码"          # 管理面登录密码
 WECOM_CORP_ID="企业微信企业ID"
 WECOM_AGENT_ID="企业微信应用AgentId"
 WECOM_SECRET="企业微信应用Secret"
-WECHAT_ALLOW_FROM="你的微信/企微用户ID"  # 命令白名单，只允许本人
+WECHAT_ALLOW_FROM="你的微信用户ID"        # 命令白名单（微信经 OpenClaw 转发），只允许本人
+TELEGRAM_ALLOW_FROM="你的数字用户ID"      # 命令白名单（Telegram），与上面二选一或并存
+TELEGRAM_BOT_TOKEN="BotFather 令牌"       # Telegram 入口（ADAPTER=telegram）
 
 # 路径
 MC_DATA_DIR="/opt/mission-control/data"
@@ -295,44 +297,62 @@ journalctl -u hermes-sidecar -n 20 --no-pager</pre></div>
 
 <section id="s06">
   <p class="phno">Phase 06</p>
-  <h2>微信桥</h2>
-  <p><b>目标：</b>建立微信侧的消息通道。二选一：<b>企业微信自建应用</b>（合规稳定，首选）或 <b>Gewechat 个人微信</b>（扫码即用，需小号）。</p>
-  <h3><span class="idx">A</span>路线 A：企业微信自建应用（推荐）</h3>
-  <div class="code"><header><span class="lang">bash · 主控机配置清单</span><button class="copybtn">复制</button></header>
-<pre># 1. 企业微信管理后台 -&gt; 应用管理 -&gt; 创建自建应用，记录：
-WECOM_CORP_ID=企业ID
-WECOM_AGENT_ID=应用AgentId
-WECOM_SECRET=应用Secret
-# 2. 应用"接收消息"设置回调：URL/Token/EncodingAESKey
-#    回调需公网可达；不想暴露公网可用官方 WebSocket SDK 长连接模式
-# 3. "企业可信IP"加入主控机公网出口IP，否则主动发消息会被拒</pre></div>
-  <p class="dim">只想在群里收告警、不发命令的轻量场景，可直接用企业微信群机器人 Webhook（仅单向推送）。</p>
-  <h3><span class="idx">B</span>路线 B：Gewechat 个人微信</h3>
-  <div class="code"><header><span class="lang">yaml · /opt/gewechat/docker-compose.yml</span><button class="copybtn">复制</button></header>
-<pre>services:
-  gewechat:
-    image: gewechat/gewechat:latest
-    ports:
-      - "127.0.0.1:2531:2531"
-    volumes:
-      - ./data:/app/data
-    restart: unless-stopped</pre></div>
-  <div class="code"><header><span class="lang">bash · 启动并扫码</span><button class="copybtn">复制</button></header>
-<pre>docker compose up -d
-# 浏览器打开 http://主控机IP:2531 查看二维码，用微信小号扫码登录
-# 登录成功后保持会话，对外提供 HTTP API，命令路由通过该 API 收发消息</pre></div>
-  <p class="dim">个人微信协议类方案存在封号可能，必须使用小号、控制消息频率；生产用途优先企业微信。Gewechat 端口只绑 127.0.0.1，通过 Tailscale 访问，不直接暴露公网。</p>
+  <h2>微信入口（OpenClaw ClawBot）</h2>
+  <p><b>目标：</b>用腾讯官方 <b>微信 ClawBot</b> 通道（底层协议 iLink，仅私聊）把微信接进 OpenClaw，再用枢机的 OpenClaw 插件把命令<b>确定性</b>转给命令路由——命令不走模型，普通对话照常走 AI。</p>
+  <h3><span class="idx">6.1</span>OpenClaw 主机装微信插件并扫码</h3>
+  <div class="code"><header><span class="lang">bash · node-openclaw</span><button class="copybtn">复制</button></header>
+<pre>openclaw plugins install "@tencent-weixin/openclaw-weixin" --force
+openclaw gateway restart
+# 控制台「通道 → 添加通道 → 微信」扫码绑定（仅私聊）
+openclaw channels status --probe</pre></div>
+  <h3><span class="idx">6.2</span>安装枢机 OpenClaw 插件（cardinal-bridge）</h3>
+  <div class="code"><header><span class="lang">bash · node-openclaw</span><button class="copybtn">复制</button></header>
+<pre>git clone https://github.com/bit-cook/shuji.git /opt/shuji
+openclaw plugins install --link /opt/shuji/packages/openclaw-cardinal-plugin --force
+openclaw plugins enable cardinal-bridge</pre></div>
+  <h3><span class="idx">6.3</span>授予会话钩子权限并指向枢机</h3>
+  <div class="code"><header><span class="lang">json · openclaw.json</span><button class="copybtn">复制</button></header>
+<pre>{
+  "plugins": {
+    "entries": {
+      "cardinal-bridge": {
+        "enabled": true,
+        "hooks": { "allowConversationAccess": true },
+        "config": {
+          "cardinalBase": "http://127.0.0.1:8080",
+          "cardinalToken": "可选：与桥共用的 Bearer 令牌"
+        }
+      }
+    }
+  }
+}</pre></div>
+  <div class="code"><header><span class="lang">bash · 验证注册</span><button class="copybtn">复制</button></header>
+<pre>openclaw plugins inspect cardinal-bridge --runtime --json   # 确认 before_agent_reply 已注册</pre></div>
+  <h3><span class="idx">6.4</span>启动命令路由（HTTP 适配器）</h3>
+  <div class="code"><header><span class="lang">bash · mc-console</span><button class="copybtn">复制</button></header>
+<pre># /etc/wechat-bridge.env 关键项：
+#   WECHAT_ALLOW_FROM=你的微信用户ID   ← 白名单只留本人（红线）
+#   ADAPTER=http                      ← 插件走 /openclaw 端点
+sudo systemctl enable --now wechat-bridge
+journalctl -u wechat-bridge -f</pre></div>
+  <h3><span class="idx">6.5</span>验收</h3>
+  <ul class="list">
+    <li>微信发 <span class="mono">/ping</span> 收到 <span class="mono">pong · …</span>（命令不经模型）</li>
+    <li>微信发普通对话（如「今天有什么安排」）由 OpenClaw AI 正常应答</li>
+    <li><span class="mono">/dispatch</span> 先回确认令牌，<span class="mono">/confirm</span> 后才真正下发</li>
+  </ul>
   <div class="note">
-    <p class="lab">勘注 · 2026-11</p>
-    <p>社区反馈 <b>Gewechat 原项目已宣布终止维护、无法登录</b>（AstrBot issue #1443，2025-04），且镜像名/端口可能与上文不符。执行本阶段前先实测路线 B 是否可用；<b>优先走路线 A（企业微信）</b>，不可用时评估飞书 / 钉钉 / Telegram 官方机器人作为替代入口。</p>
+    <p class="lab">备选入口 · 2026-11</p>
+    <p><b>企业微信自建应用</b>为可选备选（命令路由 <span class="mono">ADAPTER=wecom</span>，配置见 <span class="mono">deploy/env/wechat-bridge.env.example</span>）。<b>Gewechat 已停止维护、无法登录，不再推荐</b>。注意 ClawBot 仅支持私聊；群聊命令需求走企业微信。Telegram 入口见阶段 07.4。</p>
   </div>
+</section>
 </section>
 
 <section id="s07">
   <p class="phno">Phase 07</p>
   <h2>命令路由</h2>
-  <p><b>目标：</b>把微信文本命令翻译成管理面 REST 调用，并把结果格式化回推；核心逻辑平台无关，企微与 Gewechat 仅入口适配不同。</p>
-  <h3><span class="idx">7.1</span>命令协议（微信直接发送文本）</h3>
+  <p><b>目标：</b>把微信 / Telegram 文本命令翻译成管理面 REST 调用，并把结果格式化回推；核心逻辑平台无关，各入口只是适配器不同。正式实现已入库 <span class="mono">github.com/bit-cook/shuji → packages/wechat-bridge</span>（含白名单、二次确认、审计、企业微信加解密、Telegram 长轮询），本页保留核心逻辑示意。</p>
+  <h3><span class="idx">7.1</span>命令协议（微信 / Telegram 直接发送文本）</h3>
   <div class="tw"><table>
     <tr><th>命令</th><th>含义</th><th>管理面动作</th></tr>
     <tr><td class="mono">/ping</td><td>链路自检</td><td>固定返回 pong 与时间戳</td></tr>
@@ -411,11 +431,11 @@ async function handleCommand(text, fromUser) {
   }
 }
 
-// 入口适配：
-// 企业微信 -&gt; 用官方 SDK 起 HTTP 回调或 WebSocket 长连接，
-//   收到消息后调用 handleCommand(text, fromUser)，再用应用消息接口回推；
-// Gewechat -&gt; 轮询其 HTTP API 拉取新消息，同样调用 handleCommand，
-//   再调 Gewechat 发送接口回推。
+// 入口适配（正式实现见 github.com/bit-cook/shuji）：
+// 微信（OpenClaw ClawBot）-> cardinal-bridge 插件挂 before_agent_reply 钩子，
+//   命中命令即 POST 到桥的 /openclaw 端点，回复经微信通道返回；
+// Telegram -> 桥内置长轮询适配器（getUpdates/sendMessage），无需公网地址；
+// 企业微信 -> 桥内置回调适配器（验签加解密），主动推送用应用消息接口。
 module.exports = {handleCommand};</pre></div>
   <h3><span class="idx">7.3</span>systemd 常驻</h3>
   <div class="code"><header><span class="lang">ini · /etc/systemd/system/wechat-bridge.service</span><button class="copybtn">复制</button></header>
@@ -432,8 +452,18 @@ RestartSec=8
 
 [Install]
 WantedBy=multi-user.target</pre></div>
+  <h3><span class="idx">7.4</span>Telegram 入口（官方 Bot API，长轮询）</h3>
+  <p>与微信入口<b>并行独立</b>：找 <span class="mono">@BotFather</span> 创建机器人拿令牌，找 <span class="mono">@userinfobot</span> 查你的数字用户 ID，然后以 Telegram 适配器再跑一个桥进程：</p>
+  <div class="code"><header><span class="lang">bash · mc-console</span><button class="copybtn">复制</button></header>
+<pre># /etc/wechat-bridge.env 追加：
+#   ADAPTER=telegram
+#   TELEGRAM_BOT_TOKEN=&lt;BotFather 令牌&gt;
+#   TELEGRAM_ALLOW_FROM=&lt;你的数字用户ID&gt;
+#   TELEGRAM_DRAIN_BACKLOG=1        # 丢弃宕机期间积压消息
+sudo systemctl enable --now wechat-bridge-telegram</pre></div>
+  <p class="dim">长轮询只从内网出站连接 api.telegram.org，不监听任何端口、无需公网地址与回调，契合「不暴露公网」红线。Docker 部署用 <span class="mono">deploy/docker-compose.yml</span> 里的 <span class="mono">wechat-bridge-telegram</span> 服务。</p>
   <ul class="list">
-    <li>微信发送 <span class="mono">/ping</span> 收到 pong；非白名单用户发消息被拒</li>
+    <li>微信（或 Telegram）发送 <span class="mono">/ping</span> 收到 pong；非白名单用户发消息被拒</li>
     <li><span class="mono">/list</span> 能返回两个框架全部实例的在线状态</li>
     <li><span class="mono">/dispatch</span> 下发后，目标 Agent 面板出现对应任务</li>
   </ul>
@@ -470,6 +500,7 @@ WantedBy=multi-user.target</pre></div>
     <tr><td class="mono">T6</td><td>发送 /cost</td><td>返回 Token 成本汇总，数字非空</td><td>计量</td></tr>
     <tr><td class="mono">T7</td><td>/dispatch 给 OpenClaw 下发测试任务</td><td>面板出现任务，Agent 执行并可查结果</td><td>调度</td></tr>
     <tr><td class="mono">T8</td><td>主控机与节点分别重启</td><td>所有服务自动拉起，数据不丢失</td><td>韧性</td></tr>
+    <tr><td class="mono">T9</td><td>Telegram 发 <span class="mono">/ping</span>；陌生人发任意消息</td><td>收到 pong；陌生人被拒绝访问</td><td>入口</td></tr>
   </table></div>
 </section>
 
@@ -483,7 +514,7 @@ WantedBy=multi-user.target</pre></div>
     <tr><td>Agent 持续显示离线</td><td>心跳未到达：网络不通或服务未运行</td><td>查 sidecar 日志、ping 主控机、确认 systemd 状态</td></tr>
     <tr><td>心跳返回 401/403</td><td>API Key 不一致或无权限</td><td>核对 EnvironmentFile 与管理面 Key，重新加载服务</td></tr>
     <tr><td>微信发消息无回应</td><td>回调失效/可信 IP 未配/白名单不匹配</td><td>检查企微回调与可信 IP、桥服务日志、用户 ID</td></tr>
-    <tr><td>Gewechat 掉线</td><td>会话失效或被风控</td><td>重新扫码，降低频率，必要时更换小号</td></tr>
+    <tr><td>OpenClaw 微信通道无响应</td><td>clawbot 插件未装/扫码过期/cardinal-bridge 未注册钩子</td><td><span class="mono">openclaw channels status --probe</span>；重新扫码；<span class="mono">openclaw plugins inspect cardinal-bridge --runtime --json</span></td></tr>
     <tr><td>任务下发失败</td><td>agentId 错误或目标网关离线</td><td>先 /list 确认 ID 与在线状态再下发</td></tr>
     <tr><td>成本数据为空</td><td>适配器未上报用量</td><td>确认状态目录绝对路径，重启对应网关</td></tr>
   </table></div>
@@ -510,7 +541,7 @@ sudo tailscale down</pre></div>
     <tr><td><b>OpenClaw</b></td><td><span class="mono">https://github.com/openclaw/openclaw</span></td></tr>
     <tr><td><b>Hermes Agent</b></td><td><span class="mono">https://github.com/NousResearch/hermes-agent</span></td></tr>
     <tr><td><b>Mission-Control</b></td><td><span class="mono">https://github.com/builderz-labs/mission-control</span></td></tr>
-    <tr><td><b>Gewechat</b></td><td><span class="mono">https://github.com/Devo919/Gewechat</span></td></tr>
+    <tr><td><b>openclaw-weixin（微信 ClawBot）</b></td><td><span class="mono">openclaw plugins install @tencent-weixin/openclaw-weixin</span></td></tr>
     <tr><td><b>Tailscale</b></td><td><span class="mono">https://tailscale.com/download</span></td></tr>
   </table></div>
 </section>

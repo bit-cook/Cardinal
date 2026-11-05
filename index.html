@@ -163,7 +163,7 @@
     <h1>Cardinal<span class="zh">枢机</span></h1>
     <p class="tag serif">Everything hinges on it.</p>
     <p class="tag-zh">万事，系于此枢。</p>
-    <p class="desc">把散落在各台主机上的 Agent 收进一个控制点——<b>微信下令，全局回报</b>。这个 Agent 世界只服务一个人：<b>你</b>。</p>
+    <p class="desc">把散落在各台主机上的 Agent 收进一个控制点——<b>微信 / Telegram 下令，全局回报</b>。这个 Agent 世界只服务一个人：<b>你</b>。</p>
     <div class="cta">
       <a class="btn primary" href="#arch">了解架构</a>
       <a class="btn ghost" href="docs/runbook.html">部署手册 →</a>
@@ -204,13 +204,13 @@
     <div class="layers">
       <div class="layer">
         <p class="role">入口层 · Entry</p>
-        <h3>微信 / 企业微信</h3>
+        <h3>微信 ClawBot · Telegram</h3>
         <p>你唯一的人机入口。人在哪里，指挥部就在哪里。</p>
-        <div class="tags"><span class="tag">企业微信自建应用</span><span class="tag">WebSocket 长连接</span></div>
+        <div class="tags"><span class="tag">微信 ClawBot（iLink）</span><span class="tag">Telegram 长轮询</span></div>
       </div>
       <div class="layer">
         <p class="role">网关层 · Gateway</p>
-        <h3>微信桥 · 命令路由</h3>
+        <h3>入口适配 · 命令路由</h3>
         <p>消息收发、白名单校验、命令归一、危险操作二次确认。</p>
         <div class="tags"><span class="tag">allowFrom 白名单</span><span class="tag">审计日志</span></div>
       </div>
