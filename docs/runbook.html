@@ -151,41 +151,45 @@ systemctl status agent-gateway</pre></div>
 
 <section id="s03">
   <p class="phno">Phase 03</p>
-  <h2>部署 Mission-Control 管理面</h2>
-  <p><b>目标：</b>在主控机跑起管理面，数据持久化到固定目录，仅通过 Tailscale 内网访问。</p>
-  <h3><span class="idx">3.1</span>准备目录与环境变量</h3>
-  <div class="code"><header><span class="lang">bash · mc-console</span><button class="copybtn">复制</button></header>
-<pre>sudo mkdir -p /opt/mission-control/data
-sudo chown "$USER":"$USER" /opt/mission-control/data
-cd /opt/mission-control
-openssl rand -hex 24   # 生成 API Key，记下备用</pre></div>
-  <div class="code"><header><span class="lang">ini · /opt/mission-control/.env</span><button class="copybtn">复制</button></header>
-<pre>AUTH_PASS=替换为强密码
-API_KEY=替换为上一步生成的Key
-MISSION_CONTROL_DATA_DIR=/opt/mission-control/data
-MC_ALLOWED_HOSTS=mc-console,mc-console.你的tailnet
-PORT=3000</pre></div>
-  <h3><span class="idx">3.2</span>Docker Compose 启动（推荐）</h3>
-  <div class="code"><header><span class="lang">yaml · /opt/mission-control/docker-compose.yml</span><button class="copybtn">复制</button></header>
-<pre>services:
-  mission-control:
-    image: ghcr.io/builderz-labs/mission-control:latest
-    env_file: .env
-    ports:
-      - "100.x.x.10:3000:3000"   # 只绑 Tailscale 网卡，不监听公网
-    volumes:
-      - ./data:/data
-    restart: unless-stopped</pre></div>
-  <div class="code"><header><span class="lang">bash · 启动</span><button class="copybtn">复制</button></header>
-<pre>docker compose up -d
-docker compose logs -f --tail=50</pre></div>
-  <p class="dim">无 Docker 环境的替代路径：克隆仓库后执行 <span class="mono">bash install.sh --local</span>，SQLite 单文件、无需额外数据库。</p>
+  <h2>部署 Mission-Control 控制面（枢机自研）</h2>
+  <p><b>目标：</b>在主控机跑起控制面，数据持久化到 SQLite，仅通过 Tailscale 内网或回环访问。
+  控制面与命令路由同仓库（<span class="mono">bit-cook/shuji</span> 的 <span class="mono">packages/mission-control</span>），
+  Node 仅标准库 + <span class="mono">node:sqlite</span>，需要 Node 22.5+（推荐 24，24 起无需实验 flag）。</p>
+  <h3><span class="idx">3.1</span>生成 API Key 与环境文件</h3>
+  <div class="code"><header><span class="lang">bash</span><button class="copybtn">复制</button></header><pre>cd ~/shuji
+openssl rand -hex 24   # 生成 API Key，记下备用：命令路由与心跳 Sidecar 都用它
+cp deploy/env/mission-control.env.example deploy/env/mission-control.env
+chmod 600 deploy/env/mission-control.env
+$EDITOR deploy/env/mission-control.env    # 填入 MC_API_KEY；跨主机才改 MC_HOST</pre></div>
+  <p class="dim"><span class="mono">deploy/env/*.env</span> 已被 gitignore（含密钥），只有 <span class="mono">*.env.example</span> 入库。</p>
+  <h3><span class="idx">3.2</span>启动前自检（不监听，只验证配置）</h3>
+  <div class="code"><header><span class="lang">bash</span><button class="copybtn">复制</button></header><pre>set -a; . deploy/env/mission-control.env; set +a
+node packages/mission-control/src/cli.js --check
+# [ok] 配置合法：127.0.0.1:3000 db=...
+# [ok] 数据库与审计目录可写</pre></div>
+  <p class="dim">缺 <span class="mono">MC_API_KEY</span> 时 <span class="mono">--check</span> 返回退出码 2——控制面无鉴权等于把全部 Agent 交给同主机任何账号，这是红线，不做默认放行。</p>
+  <h3><span class="idx">3.3</span>两种运行形态</h3>
+  <div class="code"><header><span class="lang">bash · 形态 A：跟随本机用户 systemd 会话</span><button class="copybtn">复制</button></header><pre># 本机 Hermes 与 OpenClaw 都是用户级单元时，枢机跟它们同规格最省事
+for u in mission-control wechat-bridge hermes-sidecar; do
+  cp deploy/systemd-user/$u.service ~/.config/systemd/user/cardinal-$u.service
+done
+systemctl --user enable --now cardinal-mission-control
+systemctl --user status cardinal-mission-control</pre></div>
+  <div class="code"><header><span class="lang">bash · 形态 B：Docker Compose</span><button class="copybtn">复制</button></header><pre>cd deploy
+docker compose up -d mission-control
+docker compose logs -f --tail=50 mission-control</pre></div>
+  <h3><span class="idx">3.4</span>验收</h3>
   <ul class="list">
-    <li>主控机浏览器打开 <span class="mono">http://mc-console:3000</span> 出现登录页并能登录</li>
-    <li>公网 IP 的 3000 端口不可达（<span class="mono">ss -tlnp</span> 确认仅绑 Tailscale 地址）</li>
-    <li>重启主控机后容器自动恢复，历史数据仍在</li>
+    <li><span class="mono">curl -s localhost:3000/healthz</span> 返回 <span class="mono">{"status":"ok"}</span>（探针免鉴权）</li>
+    <li><span class="mono">curl -s localhost:3000/api/agents</span> 返回 <b>401</b>；带 <span class="mono">Authorization: Bearer &lt;MC_API_KEY&gt;</span> 返回 <span class="mono">[]</span></li>
+    <li><span class="mono">ss -tlnp | grep 3000</span> 只出现 <span class="mono">127.0.0.1</span> 或 Tailscale 地址，没有 <span class="mono">0.0.0.0</span></li>
+    <li>重启控制面后数据库里的 Agent 与任务都还在（WAL 模式，单文件持久）</li>
   </ul>
+  <div class="callout warn"><b>红线：</b>控制面默认拒绑 <span class="mono">0.0.0.0</span> / <span class="mono">::</span>，需显式 <span class="mono">ALLOW_PUBLIC_BIND=1</span> 才放行。
+  审计默认写 <span class="mono">audit.jsonl</span>（0600 + 10MB 轮转 + logrotate 兜底），且<b>只记元数据</b>（方法 / 路径 / 状态 / 耗时 / IP），
+  不记请求体——任务标题里可能有机密。</div>
 </section>
+
 
 <section id="s04">
   <p class="phno">Phase 04</p>
@@ -352,7 +356,6 @@ journalctl -u wechat-bridge -f</pre></div>
     <p><b>企业微信自建应用</b>为可选备选（命令路由 <span class="mono">ADAPTER=wecom</span>，配置见 <span class="mono">deploy/env/wechat-bridge.env.example</span>）。<b>Gewechat 已停止维护、无法登录，不再推荐</b>。注意 ClawBot 仅支持私聊；群聊命令需求走企业微信。Telegram 入口见阶段 07.4。</p>
   </div>
 </section>
-</section>
 
 <section id="s07">
   <p class="phno">Phase 07</p>
@@ -512,8 +515,18 @@ sudo systemctl enable --now wechat-bridge-telegram</pre></div>
     <tr><td class="mono">T12</td><td>重复确认同一令牌；换人确认</td><td>一次性消费；非发起人拒绝</td><td>安全</td></tr>
     <tr><td class="mono">T13</td><td>发超大请求体 / 中途断开连接</td><td>413 后服务照常，不崩</td><td>韧性</td></tr>
     <tr><td class="mono">T14</td><td>企业微信备份链路</td><td>加密消息进 → 加密回复出；伪造签名 400</td><td>备选</td></tr>
+    <tr><td class="mono">T15</td><td>不带 / 带错令牌调控制面 <span class="mono">/api/agents</span></td><td>401；带对令牌 200；<span class="mono">/healthz</span> 免鉴权</td><td>鉴权</td></tr>
+    <tr><td class="mono">T16</td><td>真 Sidecar 子进程心跳一次</td><td>控制面出现该 Agent，桥 <span class="mono">/list</span> 显示在线</td><td>状态</td></tr>
+    <tr><td class="mono">T17</td><td><span class="mono">/status &lt;id&gt;</span></td><td>详情带来源（hermes-rpc）与会话数</td><td>状态</td></tr>
+    <tr><td class="mono">T18</td><td><span class="mono">/dispatch</span> 给已注册 / 未注册 Agent</td><td>前者落库；后者提示「未找到 Agent」而不是暴露 404</td><td>调度</td></tr>
+    <tr><td class="mono">T19</td><td>停掉心跳，等过一个 <span class="mono">MC_STALE_SEC</span></td><td><span class="mono">/list</span> 转 offline（不是最后一份心跳自称的 online）</td><td>告警</td></tr>
+    <tr><td class="mono">T20</td><td>工人 <span class="mono">claim</span> 后 <span class="mono">complete</span> 带 tokens</td><td><span class="mono">/cost</span> 计入该用量</td><td>计量</td></tr>
+    <tr><td class="mono">T21</td><td>重启命令路由后再查</td><td>Agent 与任务都还在（真 SQLite，不是内存）</td><td>韧性</td></tr>
+    <tr><td class="mono">T22</td><td>查控制面审计文件</td><td>全量留痕，且不含 API Key</td><td>审计</td></tr>
   </table></div>
-  <p class="dim">其中 T1–T14 可在无真实凭证下自动复跑：<span class="mono">node test/e2e.js</span>（mock 控制面 + mock Hermes RPC + mock Telegram + 真实 Sidecar 子进程 + 真实桥）。</p>
+  <p class="dim">其中 T1–T14 可在无真实凭证下自动复跑：<span class="mono">node test/e2e.js</span>（mock 控制面 + mock Hermes RPC + mock Telegram + 真实 Sidecar 子进程 + 真实桥）。<br>
+  T15–T22 另起一节打<b>真控制面</b>：<span class="mono">mission-control</span> 与 Sidecar 都以子进程运行（走真实 CLI 与环境变量解析），
+  验证 Bearer 鉴权、心跳落库、dispatch、心跳超时纠偏、claim/complete 计量、<b>重启后持久化</b>与审计不含密钥。</p>
 </section>
 
 <section id="s10">
@@ -524,6 +537,10 @@ sudo systemctl enable --now wechat-bridge-telegram</pre></div>
   <div class="tw"><table>
     <tr><th>现象</th><th>可能原因</th><th>处理</th></tr>
     <tr><td>Agent 持续显示离线</td><td>心跳未到达：网络不通或服务未运行</td><td>查 sidecar 日志、ping 主控机、确认 systemd 状态</td></tr>
+    <tr><td>Hermes 明明在跑，Sidecar 却报 offline</td><td><b>Hermes 是用户级 systemd 单元</b>（<span class="mono">~/.config/systemd/user/</span>）。在 root 下不带 <span class="mono">--user</span> 查 <span class="mono">systemctl is-active hermes-gateway.service</span> 会返回退出码 3「没有这个单元」，Sidecar 于是判离线</td><td>环境文件设 <span class="mono">SYSTEMD_UNIT=hermes-gateway.service</span> 与 <span class="mono">SYSTEMD_SCOPE=user</span>（或留 <span class="mono">auto</span>：遇「无此单元」自动改查 <span class="mono">--user</span>）；确认命令 <span class="mono">systemctl --user is-active hermes-gateway.service</span></td></tr>
+    <tr><td>刚心跳成功，/list 却立刻显示离线</td><td>心跳报文 <span class="mono">reportedAt</span> 是<b>秒</b>（<span class="mono">int(time.time())</span>），控制面却拿它和 <span class="mono">Date.now()</span>（毫秒）比大小，差值天文数字 → 永远判超时</td><td>升级到 v0.4+：控制面按量级把秒换算成毫秒。自查：<span class="mono">curl /api/agents/&lt;id&gt;</span> 看 <span class="mono">lastSeenAt</span> 是否是 13 位毫秒</td></tr>
+    <tr><td>Agent 显示在线但实际早已停机</td><td>面板直接采用 Agent 最后自报的状态，没有超时纠偏</td><td>控制面 <span class="mono">MC_STALE_SEC</span>（默认 900）内无新心跳即报 offline，并附 <span class="mono">reportedStatus</span> 与 <span class="mono">stale: true</span>；按心跳周期调整该值</td></tr>
+    <tr><td>服务反复重启停不下来</td><td><span class="mono">StartLimitIntervalSec</span> / <span class="mono">StartLimitBurst</span> 写在了 <span class="mono">[Service]</span> 段——这两个键属于 <span class="mono">[Unit]</span>，写错位置会被静默忽略，重启上限一直是空转</td><td>v0.4+ 六个单元文件已移到 <span class="mono">[Unit]</span> 段；自查 <span class="mono">systemd-analyze verify &lt;unit&gt;</span> 应无 Unknown key 告警</td></tr>
     <tr><td>心跳返回 401/403</td><td>API Key 不一致或无权限</td><td>核对 EnvironmentFile 与管理面 Key；Sidecar 会以退出码 4 结束，<span class="mono">systemctl status hermes-sidecar</span> 可见 failed</td></tr>
     <tr><td>命令全部返回「拒绝访问」</td><td>白名单里的 ID 与通道实际 ID 不一致</td><td>看审计日志里的 <span class="mono">from</span> 字段，把它加进 <span class="mono">WECHAT_ALLOW_FROM</span> / <span class="mono">TELEGRAM_ALLOW_FROM</span></td></tr>
     <tr><td>插件调 /openclaw 返回 401</td><td>桥配了 <span class="mono">BRIDGE_TOKEN</span> 而插件 <span class="mono">cardinalToken</span> 没填或不同值</td><td>两边填同一个值后重载插件</td></tr>
@@ -554,7 +571,7 @@ sudo tailscale down</pre></div>
     <tr><td><b>枢机项目计划（本站）</b></td><td><span class="mono">https://github.com/bit-cook/cardinal-plan</span></td></tr>
     <tr><td><b>OpenClaw</b></td><td><span class="mono">https://github.com/openclaw/openclaw</span></td></tr>
     <tr><td><b>Hermes Agent</b></td><td><span class="mono">https://github.com/NousResearch/hermes-agent</span></td></tr>
-    <tr><td><b>Mission-Control</b></td><td><span class="mono">https://github.com/builderz-labs/mission-control</span></td></tr>
+    <tr><td><b>Mission-Control</b></td><td>枢机自研，随实现仓库发布：<span class="mono">github.com/bit-cook/shuji · packages/mission-control</span></td></tr>
     <tr><td><b>openclaw-weixin（微信 ClawBot）</b></td><td><span class="mono">openclaw plugins install @tencent-weixin/openclaw-weixin</span></td></tr>
     <tr><td><b>Tailscale</b></td><td><span class="mono">https://tailscale.com/download</span></td></tr>
   </table></div>

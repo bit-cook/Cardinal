@@ -65,7 +65,7 @@
     <div class="k"><div class="n">4</div><div class="l">架构层数</div></div>
     <div class="k"><div class="n">2+1</div><div class="l">命令入口（微信 / Telegram / 企微信备选）</div></div>
     <div class="k"><div class="n">6+2</div><div class="l">命令协议（6 条 + confirm/help）</div></div>
-    <div class="k"><div class="n">120</div><div class="l">自动化测试（77+21+22）</div></div>
+    <div class="k"><div class="n">243</div><div class="l">自动化测试（80+92+25+22）</div></div>
   </div>
 </section>
 
@@ -185,6 +185,7 @@
   <h2>代码地图（bit-cook/shuji 仓库）</h2>
   <div class="code"><header><span class="lang">仓库结构</span><button class="copybtn">复制</button></header><pre class="tree">shuji/
 ├── packages/
+│   ├── mission-control/          ← 控制面（Node + node:sqlite，持久真相）
 │   ├── wechat-bridge/            ← 命令路由（Node，零第三方依赖）
 │   │   ├── src/
 │   │   │   ├── core.js           ← 命令核心：白名单、协议、二次确认、限流编排
@@ -200,7 +201,7 @@
 │   │   │       ├── http.js       ← /message /openclaw 端点（OpenClaw 插件入口）
 │   │   │       ├── telegram.js   ← Bot API 长轮询（积压丢弃 / 退避重试）
 │   │   │       └── wecom.js      ← 企业微信回调验签加解密 + 主动推送
-│   │   └── test/                 ← 77 项 node:test
+│   │   └── test/                 ← 92 项 node:test
 │   ├── openclaw-cardinal-plugin/ ← OpenClaw 插件（TypeScript）
 │   │   ├── src/index.ts          ← message_received + before_agent_reply 双钩子
 │   │   ├── src/sender-cache.ts   ← 发送者身份缓存（reply 钩子拿不到 senderId）
@@ -208,18 +209,18 @@
 │   │   ├── src/cardinal-client.ts← 枢机 HTTP 客户端（纯函数）
 │   │   └── test/                 ← 22 项 + tsc 对真实 SDK 零错误
 │   └── hermes-sidecar/           ← Hermes 心跳 Sidecar（Python 仅标准库）
-│       ├── sidecar.py            ← generic 协议心跳 / RPC→systemd 退化 / 退避重试
-│       └── tests/                ← 21 项 unittest
+│       ├── sidecar.py            ← generic 协议心跳 / RPC→systemd 退化（自动识别 system/--user）/ 退避重试
+│       └── tests/                ← 25 项 unittest
 ├── deploy/                       ← docker-compose / Dockerfile / systemd / env 模板 / install.sh
-├── test/                         ← Mission-Control 测试桩 + Telegram 测试桩 + e2e（T1–T14）
-└── .github/workflows/ci.yml      ← 五 job CI：bridge / sidecar / plugin / deploy / e2e</pre></div>
+├── test/                         ← 控制面测试桩 + Telegram 测试桩 + e2e（T1–T22）
+└── .github/workflows/ci.yml      ← 六 job CI：bridge / mission-control / sidecar / plugin / deploy / e2e</pre></div>
   <div class="tw"><table>
     <tr><th>模块</th><th>一句话职责</th></tr>
     <tr><td><span class="mono">core.js</span></td><td>平台无关的命令中枢：输入 (text, fromUser)，输出回复字符串；白名单 / 二次确认 / 限流 / 审计都在这里编排</td></tr>
     <tr><td><span class="mono">adapters/*</span></td><td>三个入口适配器只负责「收消息 → 调核心 → 发回复」，协议差异被关在各自文件里</td></tr>
     <tr><td><span class="mono">openclaw-cardinal-plugin</span></td><td>OpenClaw 侧的「翻译官」：<span class="mono">message_received</span> 记发送者、<span class="mono">before_agent_reply</span> 拦命令、POST 给桥、把回复交回聊天通道</td></tr>
     <tr><td><span class="mono">hermes-sidecar</span></td><td>让没有原生适配的 Hermes 也能被纳管：定时采状态、按 generic 协议上报心跳</td></tr>
-    <tr><td><span class="mono">test/*</span></td><td>测试桩不是产品：mock 控制面、mock Telegram、mock Hermes RPC，让 T1–T14 无需真实凭证可复跑</td></tr>
+    <tr><td><span class="mono">test/*</span></td><td>测试桩不是产品：mock 控制面、mock Telegram、mock Hermes RPC，让 T1–T22 无需真实凭证可复跑</td></tr>
   </table></div>
 </section>
 
@@ -240,12 +241,13 @@
   <p class="phno">Section 09</p>
   <h2>测试与验收：每条都可复跑</h2>
   <div class="kpi">
-    <div class="k"><div class="n">77</div><div class="l">wechat-bridge 单测</div></div>
+    <div class="k"><div class="n">80</div><div class="l">wechat-bridge 单测</div></div>
+    <div class="k"><div class="n">92</div><div class="l">mission-control 单测</div></div>
     <div class="k"><div class="n">21</div><div class="l">hermes-sidecar 单测</div></div>
     <div class="k"><div class="n">22</div><div class="l">OpenClaw 插件单测</div></div>
-    <div class="k"><div class="n">15</div><div class="l">端到端验收 T1–T14</div></div>
+    <div class="k"><div class="n">25</div><div class="l">端到端验收 T1–T22</div></div>
   </div>
-  <p>端到端验收复跑部署手册 Phase 09 的全部用例——用 mock 控制面 + mock Hermes RPC + mock Telegram + <b>真实 Sidecar 子进程 + 真实桥</b>，不需要任何真实凭证：</p>
+  <p>端到端验收复跑部署手册 Phase 09 的全部用例。T1–T14 用 mock 控制面 + mock Hermes RPC + mock Telegram + <b>真实 Sidecar 子进程 + 真实桥</b>，不需要任何真实凭证；T15–T22 另起一节打<b>真控制面</b>（真 SQLite + 真 CLI 子进程），专测 mock 测不到的两件事——持久化与心跳超时纠偏：</p>
   <div class="tw"><table>
     <tr><th>#</th><th>用例</th><th>预期</th><th>类型</th></tr>
     <tr><td class="mono">T1</td><td>微信发 /ping</td><td>收到 pong 与时间戳</td><td>链路</td></tr>
@@ -263,7 +265,7 @@
     <tr><td class="mono">T13</td><td>发送超大请求体</td><td>413，随后服务照常</td><td>韧性</td></tr>
     <tr><td class="mono">T14</td><td>企业微信备份链路</td><td>加密消息进 → 加密回复出；伪造签名 400</td><td>备选</td></tr>
   </table></div>
-  <p class="dim">其中企业微信链路的真服务器加解密往返（加密消息进 → 加密回复出、伪造签名 400、URL 验签、过期时间戳拒绝）由 bridge 单测覆盖；OpenClaw 插件对着真实 <span class="mono">openclaw@2026.10.10</span> SDK 做 <span class="mono">tsc --noEmit</span> 类型检查，零错误。全部由 CI 五个 job（bridge / sidecar / plugin / deploy 清单 / e2e）在每次推送时复跑。</p>
+  <p class="dim">其中企业微信链路的真服务器加解密往返（加密消息进 → 加密回复出、伪造签名 400、URL 验签、过期时间戳拒绝）由 bridge 单测覆盖；OpenClaw 插件对着真实 <span class="mono">openclaw@2026.10.10</span> SDK 做 <span class="mono">tsc --noEmit</span> 类型检查，零错误。全部由 CI 六个 job（bridge / mission-control / sidecar / plugin / deploy 清单 / e2e）在每次推送时复跑。</p>
 </section>
 
 <section id="s10">
@@ -283,10 +285,10 @@
   <h2>现状与路线</h2>
   <h3><span class="idx">✓</span>已完成（v0.3，CI 全绿）</h3>
   <ul class="list">
-    <li>命令路由：白名单、六条命令 + confirm/help、二次确认、审计（0600 + 轮转）、限流、端点 Bearer 鉴权、三入口适配器</li>
+    <li>命令路由：白名单、八条命令（ping/list/status/tasks/cost/dispatch/confirm/help）、二次确认、审计（0600 + 轮转）、限流、端点 Bearer 鉴权、三入口适配器</li>
     <li>OpenClaw 插件：<span class="mono">message_received</span> 记发送者 + <span class="mono">before_agent_reply</span> 拦命令（不走模型）；类型检查对真实 SDK 零错误</li>
     <li>Hermes 心跳 Sidecar：generic 协议、状态退化、重试退避（带抖动）、401/403 退出码 4、优雅退出</li>
-    <li>部署：compose（read_only / cap_drop / healthcheck）/ systemd 加固 / logrotate / env 模板 / install.sh（含启动前自检与卸载）；CI 五 job；T1–T14 验收全过</li>
+    <li>部署：compose（read_only / cap_drop / healthcheck）/ systemd 加固 / logrotate / env 模板 / install.sh（含启动前自检与卸载）；CI 六 job；T1–T22 验收全过</li>
   </ul>
   <h3><span class="idx">→</span>下一步</h3>
   <ul class="list">

@@ -25,12 +25,14 @@
 
 ## 实现在别处
 
-[**bit-cook/shuji**](https://github.com/bit-cook/shuji) — 枢机的软件实现：
+[**bit-cook/shuji**](https://github.com/bit-cook/shuji) — 枢机的软件实现（v0.4）：
 
-- `packages/wechat-bridge` — 命令路由（Node，零依赖）：白名单、六条命令协议、危险命令二次确认、Telegram 长轮询、企业微信回调加解密（备选）、JSONL 审计、端点 Bearer 鉴权、限流
-- `packages/hermes-sidecar` — Hermes 心跳 Sidecar（Python 标准库）：generic 协议心跳、重试退避（带抖动）、401/403 快速失败、systemd 加固单元
-- `deploy/` — docker-compose、systemd 单元、环境变量模板、安装脚本
-- `test/` — Mission-Control 测试桩 + T1–T8 端到端验收脚本
+- `packages/mission-control` — **控制面**（Node 标准库 + `node:sqlite`）：Agent 注册与心跳、任务下发/领取/回报、Token 成本计量、Bearer 鉴权、审计、心跳超时纠偏。数据的持久真相在这里
+- `packages/wechat-bridge` — 命令路由（Node，零依赖）：白名单、八条命令协议、危险命令二次确认、Telegram 长轮询、企业微信回调加解密（备选）、JSONL 审计、端点 Bearer 鉴权、限流
+- `packages/openclaw-cardinal-plugin` — OpenClaw 插件（TypeScript）：`message_received` + `before_agent_reply` 双钩子，把微信（ClawBot/iLink）等通道里的 Cardinal 命令确定性地转给枢机，不调模型
+- `packages/hermes-sidecar` — Hermes 心跳 Sidecar（Python 标准库）：generic 协议心跳、RPC→systemd 退化（**自动识别 system / --user 作用域**）、重试退避（带抖动）、401/403 快速失败、systemd 加固单元
+- `deploy/` — docker-compose、两个 Dockerfile、systemd 单元（系统作用域 + 用户作用域）、logrotate、环境变量模板、安装脚本
+- `test/` — 控制面测试桩 + Telegram 测试桩 + T1–T22 端到端验收脚本（T15–T22 打真控制面：真 SQLite + 真 CLI 子进程）
 
 ## 项目文档（GitHub Pages 托管）
 
