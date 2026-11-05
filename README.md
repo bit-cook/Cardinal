@@ -27,8 +27,8 @@
 
 [**bit-cook/shuji**](https://github.com/bit-cook/shuji) — 枢机的软件实现：
 
-- `packages/wechat-bridge` — 命令路由（Node，零依赖）：白名单、六条命令协议、危险命令二次确认、企业微信回调加解密、JSONL 审计
-- `packages/hermes-sidecar` — Hermes 心跳 Sidecar（Python 标准库）：generic 协议心跳、重试退避、systemd 加固单元
+- `packages/wechat-bridge` — 命令路由（Node，零依赖）：白名单、六条命令协议、危险命令二次确认、Telegram 长轮询、企业微信回调加解密（备选）、JSONL 审计、端点 Bearer 鉴权、限流
+- `packages/hermes-sidecar` — Hermes 心跳 Sidecar（Python 标准库）：generic 协议心跳、重试退避（带抖动）、401/403 快速失败、systemd 加固单元
 - `deploy/` — docker-compose、systemd 单元、环境变量模板、安装脚本
 - `test/` — Mission-Control 测试桩 + T1–T8 端到端验收脚本
 
