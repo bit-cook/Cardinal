@@ -65,7 +65,7 @@
     <div class="k"><div class="n">4</div><div class="l">架构层数</div></div>
     <div class="k"><div class="n">2+1</div><div class="l">命令入口（微信 / Telegram / 企微信备选）</div></div>
     <div class="k"><div class="n">6+2</div><div class="l">命令协议（6 条 + confirm/help）</div></div>
-    <div class="k"><div class="n">331</div><div class="l">自动化测试（133+122+25+22 单测 + 29 项 e2e）</div></div>
+    <div class="k"><div class="n">334</div><div class="l">自动化测试（133+125+25+22 单测 + 29 项 e2e）</div></div>
   </div>
 </section>
 
@@ -250,7 +250,7 @@
   <h2>测试与验收：每条都可复跑</h2>
   <div class="kpi">
     <div class="k"><div class="n">99</div><div class="l">wechat-bridge 单测</div></div>
-    <div class="k"><div class="n">122</div><div class="l">mission-control 单测</div></div>
+    <div class="k"><div class="n">125</div><div class="l">mission-control 单测</div></div>
     <div class="k"><div class="n">25</div><div class="l">hermes-sidecar 单测</div></div>
     <div class="k"><div class="n">22</div><div class="l">OpenClaw 插件单测</div></div>
     <div class="k"><div class="n">29</div><div class="l">端到端验收 T1–T26</div></div>
@@ -292,7 +292,7 @@
 <section id="s11">
   <p class="phno">Section 11</p>
   <h2>现状与路线</h2>
-  <h3><span class="idx">✓</span>已完成（v0.6，CI 全绿，双入口真机联调通过）</h3>
+  <h3><span class="idx">✓</span>已完成（v0.6.1，CI 全绿，双入口真机联调通过）</h3>
   <ul class="list">
     <li>命令路由：白名单、八条命令（ping/list/status/tasks/cost/dispatch/confirm/help）、二次确认、审计（0600 + 轮转）、限流、端点 Bearer 鉴权、四个入口适配器</li>
     <li>控制面（v0.4 新增，枢机自研）：Agent 注册与心跳、任务下发/领取/回报、Token 成本计量、Bearer 鉴权、审计只记元数据、<b>读路径心跳超时纠偏</b>（不再轻信 Agent 自报的 online）、SQLite 持久</li>
@@ -302,7 +302,7 @@
     <li>部署：compose（read_only / cap_drop / healthcheck）/ systemd 加固（系统作用域 + 用户作用域两套，共 10 个单元）/ logrotate / env 模板 / install.sh（含启动前自检与卸载）；CI 六 job；T1–T26 验收全过</li>
     <li><b>常驻加固（v0.5）</b>：启动即校验配置（配错就起不来，而不是起来后拒绝所有人）；心跳流水与 detail 大小有上限；限流桶与计数器键数有界；审计文件与 SQLite 均 0600；Telegram 入口只接私聊</li>
     <li><b>微信入口改为枢机原生（v0.6）</b>：iLink 协议由枢机自己实现（<span class="mono">packages/wechat-bridge/src/ilink.js</span>），扫码登录后令牌落状态文件 0600，之后长轮询无人值守——<b>使用枢机不再需要安装 OpenClaw</b></li>
-    <li><b>网页面板（v0.6）</b>：控制面同一个端口上的只读面板（<span class="mono">/panel</span>）。用 <span class="mono">MC_API_KEY</span> 换一个 HttpOnly + SameSite=Strict 的会话 Cookie（HMAC 签名、12 小时有效、防篡改、登录按 IP 限流）；只读，写操作仍走命令入口的二次确认，因此不引入 CSRF 面</li>
+    <li><b>网页面板（v0.6）</b>：控制面同一个端口上的只读面板（<span class="mono">/panel</span>，带不带尾斜杠等价）。用 <span class="mono">MC_API_KEY</span> 换一个 HttpOnly + SameSite=Strict 的会话 Cookie（HMAC 签名、12 小时有效、防篡改、登录按 IP 限流）；只读，写操作仍走命令入口的二次确认，因此不引入 CSRF 面</li>
     <li><b>通道可扩展</b>：入口适配器是注册点——新通讯工具只需一个适配器文件，红线逻辑全在核心里复用</li>
   </ul>
   <h3><span class="idx">→</span>下一步</h3>

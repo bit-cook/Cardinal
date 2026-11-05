@@ -567,9 +567,11 @@ MC_PANEL_LOGIN_PER_MIN=5</pre></div>
   <h3><span class="idx">7.5.3</span>验收</h3>
   <ul class="list">
     <li>浏览器打开 <span class="mono">http://127.0.0.1:3000/panel</span>，输对 Key 后看到 Agent 磁贴、任务计数、成本汇总</li>
+    <li><b>地址带不带尾斜杠都能用</b>（<span class="mono">/panel</span> 与 <span class="mono">/panel/</span> 等价）：面板端点全部是绝对路径，不会拼成 <span class="mono">/panel/panel/…</span></li>
     <li>不带 Cookie 直接请求 <span class="mono">/panel/api/snapshot</span> 返回 401；改 Cookie 一个字节同样 401</li>
     <li>面板上找不到任何「下发任务 / 重启 Agent」按钮——这是设计而非缺失</li>
     <li>连续 6 次输错 Key，第 6 次起连正确的 Key 也被拒，直到限流窗口过去</li>
+    <li>报错文案与原因一一对应：401 才是「API Key 不正确」，429 是「尝试过于频繁」并给出等待秒数，不会把路径错误说成密钥错误</li>
   </ul>
 </section>
 
@@ -657,6 +659,7 @@ MC_PANEL_LOGIN_PER_MIN=5</pre></div>
     <tr><td>微信能收命令，但重启桥后旧消息又被处理一遍</td><td><span class="mono">getupdates</span> 的同步游标没被持久化，桥拿空游标重来，服务端于是重放积压</td><td>v0.6+ 游标随状态文件一起落盘（0600，5 秒节流）；自查 <span class="mono">state.json</span> 里的 <span class="mono">getUpdatesBuf</span> 是否在推进</td></tr>
     <tr><td>面板打不开，全部 404</td><td><span class="mono">MC_PANEL=0</span> 或该版本没有面板</td><td>环境文件设 <span class="mono">MC_PANEL=1</span> 后重启控制面；<span class="mono">curl -s localhost:3000/panel</span> 应返回 HTML</td></tr>
     <tr><td>面板输对 Key 仍然 401</td><td>Cookie 被改、会话已过期，或该 IP 正被登录限流</td><td>换浏览器再登一次；限流窗口（每分钟 5 次）内正确的 Key 也会被拒，这是有意的</td></tr>
+    <tr><td>面板能打开，但登录永远失败，且提示「API Key 不正确」</td><td>访问地址带了尾斜杠（<span class="mono">/panel/</span>），而前端用相对路径请求端点，于是打到 <span class="mono">/panel/panel/login</span> → 404；旧版把 404 也显示成密钥错误</td><td>升级到 v0.6.1+：面板端点全部改为绝对路径，且 401/429/503/其它状态码各有准确文案。自查 <span class="mono">curl -s http://127.0.0.1:3000/panel/ | grep -o "fetch('[^']*"</span> 应全部以 <span class="mono">/panel/</span> 开头</td></tr>
     <tr><td>OpenClaw 微信通道无响应（可选的转发路径）</td><td>clawbot 插件未装 / 扫码过期 / cardinal-bridge 未注册钩子</td><td><span class="mono">openclaw channels status --probe</span>；重新扫码；<span class="mono">openclaw plugins inspect cardinal-bridge --runtime --json</span></td></tr>
     <tr><td>任务下发失败</td><td>agentId 错误或目标网关离线</td><td>先 /list 确认 ID 与在线状态再下发</td></tr>
     <tr><td>成本数据为空</td><td>适配器未上报用量</td><td>确认状态目录绝对路径，重启对应网关</td></tr>
