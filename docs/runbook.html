@@ -211,6 +211,7 @@ sudo ufw reload</pre></div>
   <h2>Hermes 心跳 Sidecar 接入</h2>
   <p><b>目标：</b>Hermes 暂无原生适配器，用一个仅依赖标准库的 Python Sidecar，周期性采集 Hermes 状态并按 generic 协议向管理面发心跳。</p>
   <h3><span class="idx">5.1</span>Sidecar 脚本</h3>
+  <p class="note" style="color:var(--amber)">正式实现（重试退避、结构化日志、systemd 加固单元、unittest）已入库 <span class="mono">github.com/bit-cook/shuji → packages/hermes-sidecar</span>；下方为核心逻辑示意，部署时以仓库版本为准。</p>
   <div class="code"><header><span class="lang">python · /opt/hermes-sidecar/sidecar.py</span><button class="copybtn">复制</button></header>
 <pre>#!/usr/bin/env python3
 """Hermes -&gt; Mission-Control generic 心跳上报，仅用标准库。"""
@@ -342,6 +343,7 @@ WECOM_SECRET=应用Secret
     <tr><td class="mono">/dispatch &lt;id&gt; &lt;任务&gt;</td><td>下发任务</td><td class="mono">POST /api/tasks</td></tr>
   </table></div>
   <h3><span class="idx">7.2</span>路由服务完整脚本（纯 Node，无第三方依赖）</h3>
+  <p class="note" style="color:var(--amber)">正式实现（企业微信回调加解密、白名单、危险命令二次确认、JSONL 审计、node:test 单测）已入库 <span class="mono">github.com/bit-cook/shuji → packages/wechat-bridge</span>；下方为核心逻辑示意，部署时以仓库版本为准。</p>
   <div class="code"><header><span class="lang">javascript · /opt/wechat-bridge/bridge.js</span><button class="copybtn">复制</button></header>
 <pre>#!/usr/bin/env node
 // 平台无关的命令处理核心；入口适配见文件末尾说明。
@@ -503,6 +505,8 @@ sudo tailscale down</pre></div>
   <h2>附录：项目地址</h2>
   <div class="tw"><table>
     <tr><th>项目</th><th>地址</th></tr>
+    <tr><td><b>枢机（实现仓库）</b></td><td><span class="mono">github.com/bit-cook/shuji</span> — 命令路由、心跳 Sidecar、部署清单、CI</td></tr>
+    <tr><td><b>枢机项目计划（本站）</b></td><td><span class="mono">https://github.com/bit-cook/cardinal-plan</span></td></tr>
     <tr><td><b>OpenClaw</b></td><td><span class="mono">https://github.com/openclaw/openclaw</span></td></tr>
     <tr><td><b>Hermes Agent</b></td><td><span class="mono">https://github.com/NousResearch/hermes-agent</span></td></tr>
     <tr><td><b>Mission-Control</b></td><td><span class="mono">https://github.com/builderz-labs/mission-control</span></td></tr>
@@ -521,7 +525,7 @@ sudo tailscale down</pre></div>
 <footer>
   <div class="wrap">
     <span>Cardinal · 枢机 — Agenos 项目的控制面</span>
-    <span><a href="../index.html">官网</a> · <a href="https://github.com/bit-cook/Cardinal" target="_blank" rel="noopener">GitHub</a></span>
+    <span><a href="../index.html">官网</a> · <a href="https://github.com/bit-cook/cardinal-plan" target="_blank" rel="noopener">GitHub</a></span>
   </div>
 </footer>
 

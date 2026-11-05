@@ -67,7 +67,7 @@
     <tr><td><b>Mission-Control</b></td><td>MIT / Node</td><td>中央管理面，101 个 REST API + Webhook，SQLite 单文件，约 50 Agent 上限，原生适配 OpenClaw，Hermes 走 generic 心跳</td></tr>
     <tr><td><b>OpenClaw</b></td><td>MIT / Node、pnpm</td><td>节点 Agent，控制台默认 <span class="mono">127.0.0.1:18789</span>，由 Mission-Control 原生适配接入</td></tr>
     <tr><td><b>Hermes Agent</b></td><td>MIT / Python</td><td>Nous Research 出品，支持 Linux/macOS/WSL2，无原生适配，通过心跳 Sidecar 上报</td></tr>
-    <tr><td><b>微信桥</b></td><td>Docker</td><td>企业微信自建应用（合规，推荐）；个人微信用 Gewechat（镜像端口 2531，有封号风险）</td></tr>
+    <tr><td><b>微信桥</b></td><td>Docker</td><td>企业微信自建应用（合规，推荐）；个人微信用 Gewechat（镜像端口 2531，有封号风险）。命令路由与 Sidecar 的正式实现已入库 <span class="mono">github.com/bit-cook/shuji</span>（<span class="mono">packages/wechat-bridge</span>、<span class="mono">packages/hermes-sidecar</span>），含二次确认、审计日志、单测与 CI</td></tr>
     <tr><td><b>Tailscale</b></td><td>组网</td><td>跨主机加密内网，MagicDNS 固定主机名，端口不暴露公网</td></tr>
   </table></div>
 </section>
@@ -129,6 +129,8 @@
   <h2>项目地址</h2>
   <div class="tw"><table>
     <tr><th>项目</th><th>地址</th></tr>
+    <tr><td><b>枢机（实现仓库）</b></td><td><span class="mono">github.com/bit-cook/shuji</span> — 命令路由、心跳 Sidecar、部署清单、CI</td></tr>
+    <tr><td><b>枢机项目计划（本站）</b></td><td><span class="mono">github.com/bit-cook/cardinal-plan</span></td></tr>
     <tr><td><b>OpenClaw</b></td><td><span class="mono">github.com/openclaw/openclaw</span> ；官网 <span class="mono">openclaw.ai</span></td></tr>
     <tr><td><b>Hermes Agent</b></td><td><span class="mono">github.com/NousResearch/hermes-agent</span></td></tr>
     <tr><td><b>Mission-Control</b></td><td><span class="mono">github.com/builderz-labs/mission-control</span></td></tr>
@@ -184,7 +186,7 @@
 <footer>
   <div class="wrap">
     <span>Cardinal · 枢机 — Agenos 项目的控制面</span>
-    <span><a href="../index.html">官网</a> · <a href="https://github.com/bit-cook/Cardinal" target="_blank" rel="noopener">GitHub</a></span>
+    <span><a href="../index.html">官网</a> · <a href="https://github.com/bit-cook/cardinal-plan" target="_blank" rel="noopener">GitHub</a></span>
   </div>
 </footer>
 
