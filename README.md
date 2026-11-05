@@ -31,8 +31,10 @@
 - `packages/wechat-bridge` — 命令路由（Node，零依赖）：白名单、八条命令协议、危险命令二次确认、Telegram 长轮询、企业微信回调加解密（备选）、JSONL 审计、端点 Bearer 鉴权、限流
 - `packages/openclaw-cardinal-plugin` — OpenClaw 插件（TypeScript）：`message_received` + `before_agent_reply` 双钩子，把微信（ClawBot/iLink）等通道里的 Cardinal 命令确定性地转给枢机，不调模型
 - `packages/hermes-sidecar` — Hermes 心跳 Sidecar（Python 标准库）：generic 协议心跳、RPC→systemd 退化（**自动识别 system / --user 作用域**）、重试退避（带抖动）、401/403 快速失败、systemd 加固单元
-- `deploy/` — docker-compose、两个 Dockerfile、systemd 单元（系统作用域 + 用户作用域）、logrotate、环境变量模板、安装脚本
+- `deploy/` — docker-compose、两个 Dockerfile、systemd 单元（系统作用域 + 用户作用域两套，共 8 个）、logrotate、环境变量模板、安装脚本、`wait-telegram-sender.sh`（自动认领 Telegram 数字 user_id）
 - `test/` — 控制面测试桩 + Telegram 测试桩 + T1–T22 端到端验收脚本（T15–T22 打真控制面：真 SQLite + 真 CLI 子进程）
+
+两条命令入口（微信 / Telegram）都是<b>独立的桥进程</b>：各自的环境文件、systemd 单元与审计日志，白名单取两个入口 ID 的并集。详见部署手册阶段 07.4。
 
 ## 项目文档（GitHub Pages 托管）
 

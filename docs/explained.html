@@ -65,7 +65,7 @@
     <div class="k"><div class="n">4</div><div class="l">架构层数</div></div>
     <div class="k"><div class="n">2+1</div><div class="l">命令入口（微信 / Telegram / 企微信备选）</div></div>
     <div class="k"><div class="n">6+2</div><div class="l">命令协议（6 条 + confirm/help）</div></div>
-    <div class="k"><div class="n">243</div><div class="l">自动化测试（80+92+25+22）</div></div>
+    <div class="k"><div class="n">250</div><div class="l">自动化测试（86+92+25+22 单测 + 25 项 e2e）</div></div>
   </div>
 </section>
 
@@ -125,11 +125,14 @@
   <h3><span class="idx">B</span>Telegram：官方 Bot API 长轮询（直连）</h3>
   <div class="tw"><table>
     <tr><th>步</th><th>发生什么</th><th>关键点</th></tr>
-    <tr><td>1</td><td>找 <span class="mono">@BotFather</span> 创建机器人拿令牌；找 <span class="mono">@userinfobot</span> 查你的数字用户 ID</td><td>五分钟搞定，无需服务器</td></tr>
-    <tr><td>2</td><td>枢机桥以 <span class="mono">ADAPTER=telegram</span> 启动，长轮询 <span class="mono">getUpdates</span></td><td><b>只从内网出站</b>，不监听任何端口</td></tr>
+    <tr><td>1</td><td>找 <span class="mono">@BotFather</span> 创建机器人拿令牌；数字用户 ID 可跑 <span class="mono">deploy/wait-telegram-sender.sh</span> 让脚本自动认领</td><td>五分钟搞定，无需服务器</td></tr>
+    <tr><td>2</td><td>枢机桥以 <span class="mono">ADAPTER=telegram</span> <b>单独起一个进程</b>（独立 env 文件与 systemd 单元），长轮询 <span class="mono">getUpdates</span></td><td><b>只从内网出站</b>，不监听任何端口</td></tr>
     <tr><td>3</td><td>文本消息进同一个命令核心：白名单校验 → 执行 → <span class="mono">sendMessage</span> 回推</td><td>与微信链路共用同一套红线逻辑</td></tr>
   </table></div>
   <p class="dim">长轮询天然契合「不暴露公网」红线：没有回调 URL、没有入站端口、没有证书要维护。启动时默认丢弃宕机期间积压的消息，避免对过期命令刷屏。</p>
+  <div class="callout warn"><b>一个进程只跑一个适配器。</b>微信入口与 Telegram 入口是<b>两个进程</b>，各有自己的环境文件、
+  systemd 单元与审计日志——不是同一份配置切个开关。把 <span class="mono">ADAPTER=telegram</span> 追加进微信那份 env 文件，
+  顶掉的是正在服务的微信入口；而白名单取的是两个入口 ID 的并集，配错一边的症状是「服务正常起来了，但每个真实用户都被拒」。</div>
 
   <h3><span class="idx">C</span>备选：企业微信自建应用</h3>
   <p>需要群聊命令、或公司环境只有企微时，命令路由可切到 <span class="mono">ADAPTER=wecom</span>：官方回调验签加解密（WXBizMsgCrypt 等价实现，零依赖）、白名单、主动推送。Gewechat 类个人微信协议方案已停止维护，不再推荐。</p>
@@ -201,7 +204,7 @@
 │   │   │       ├── http.js       ← /message /openclaw 端点（OpenClaw 插件入口）
 │   │   │       ├── telegram.js   ← Bot API 长轮询（积压丢弃 / 退避重试）
 │   │   │       └── wecom.js      ← 企业微信回调验签加解密 + 主动推送
-│   │   └── test/                 ← 92 项 node:test
+│   │   └── test/                 ← 86 项 node:test
 │   ├── openclaw-cardinal-plugin/ ← OpenClaw 插件（TypeScript）
 │   │   ├── src/index.ts          ← message_received + before_agent_reply 双钩子
 │   │   ├── src/sender-cache.ts   ← 发送者身份缓存（reply 钩子拿不到 senderId）
@@ -211,7 +214,8 @@
 │   └── hermes-sidecar/           ← Hermes 心跳 Sidecar（Python 仅标准库）
 │       ├── sidecar.py            ← generic 协议心跳 / RPC→systemd 退化（自动识别 system/--user）/ 退避重试
 │       └── tests/                ← 25 项 unittest
-├── deploy/                       ← docker-compose / Dockerfile / systemd / env 模板 / install.sh
+├── deploy/                       ← compose / 两个 Dockerfile / systemd（系统 + 用户两套共 8 个单元）
+│                                  logrotate / env 模板 / install.sh（启动前自检 + 卸载）/ wait-telegram-sender.sh
 ├── test/                         ← 控制面测试桩 + Telegram 测试桩 + e2e（T1–T22）
 └── .github/workflows/ci.yml      ← 六 job CI：bridge / mission-control / sidecar / plugin / deploy / e2e</pre></div>
   <div class="tw"><table>
@@ -221,6 +225,7 @@
     <tr><td><span class="mono">openclaw-cardinal-plugin</span></td><td>OpenClaw 侧的「翻译官」：<span class="mono">message_received</span> 记发送者、<span class="mono">before_agent_reply</span> 拦命令、POST 给桥、把回复交回聊天通道</td></tr>
     <tr><td><span class="mono">hermes-sidecar</span></td><td>让没有原生适配的 Hermes 也能被纳管：定时采状态、按 generic 协议上报心跳</td></tr>
     <tr><td><span class="mono">test/*</span></td><td>测试桩不是产品：mock 控制面、mock Telegram、mock Hermes RPC，让 T1–T22 无需真实凭证可复跑</td></tr>
+    <tr><td><span class="mono">deploy/wait-telegram-sender.sh</span></td><td>不知道自己的 Telegram 数字 user_id 时跑它：抓到第一个非机器人发送者即写白名单、装并起服务——令牌只从环境文件读，换机器人只改一处</td></tr>
   </table></div>
 </section>
 
@@ -241,9 +246,9 @@
   <p class="phno">Section 09</p>
   <h2>测试与验收：每条都可复跑</h2>
   <div class="kpi">
-    <div class="k"><div class="n">80</div><div class="l">wechat-bridge 单测</div></div>
+    <div class="k"><div class="n">86</div><div class="l">wechat-bridge 单测</div></div>
     <div class="k"><div class="n">92</div><div class="l">mission-control 单测</div></div>
-    <div class="k"><div class="n">21</div><div class="l">hermes-sidecar 单测</div></div>
+    <div class="k"><div class="n">25</div><div class="l">hermes-sidecar 单测</div></div>
     <div class="k"><div class="n">22</div><div class="l">OpenClaw 插件单测</div></div>
     <div class="k"><div class="n">25</div><div class="l">端到端验收 T1–T22</div></div>
   </div>
@@ -276,24 +281,26 @@
     <tr><td><b>主控机 mc-console</b></td><td>Mission-Control（Docker）+ 命令路由 HTTP 实例 + 命令路由 Telegram 实例</td><td><span class="mono">docker compose -f deploy/docker-compose.yml up -d</span></td></tr>
     <tr><td><b>OpenClaw 主机</b></td><td>OpenClaw Gateway + 微信 ClawBot 插件 + cardinal-bridge 插件</td><td>官方插件 install + 扫码；枢机插件 <span class="mono">plugins install --link</span></td></tr>
     <tr><td><b>Hermes 主机</b></td><td>Hermes Agent + 心跳 Sidecar</td><td><span class="mono">sudo deploy/install.sh</span>（专用账号 + systemd 加固单元）</td></tr>
+    <tr><td><b>单机一切从简</b></td><td>四个组件全跑在<b>用户级</b> systemd 单元里（不占 root、不建系统账号）</td><td>拷 <span class="mono">deploy/systemd-user/*.service</span> 到 <span class="mono">~/.config/systemd/user/</span>；Hermes 与 OpenClaw 本来就是用户级单元时最省事</td></tr>
   </table></div>
-  <p>三个入口适配器是同一份代码的三个进程：<span class="mono">ADAPTER=http</span> 服务 OpenClaw 插件与人工排查，<span class="mono">ADAPTER=telegram</span> 服务 Telegram，<span class="mono">ADAPTER=wecom</span> 服务企业微信——按需启用，互不影响。</p>
+  <p>三个入口适配器是同一份代码的三个进程：<span class="mono">ADAPTER=http</span> 服务 OpenClaw 插件与人工排查，<span class="mono">ADAPTER=telegram</span> 服务 Telegram，<span class="mono">ADAPTER=wecom</span> 服务企业微信——按需启用，互不影响。<b>每个进程有自己独立的环境文件、systemd 单元与审计日志</b>，白名单则是两个入口 ID 的并集（安全，因为只有一个通道的消息能到达给定适配器）。</p>
 </section>
 
 <section id="s11">
   <p class="phno">Section 11</p>
   <h2>现状与路线</h2>
-  <h3><span class="idx">✓</span>已完成（v0.3，CI 全绿）</h3>
+  <h3><span class="idx">✓</span>已完成（v0.4，CI 全绿，双入口真机联调通过）</h3>
   <ul class="list">
     <li>命令路由：白名单、八条命令（ping/list/status/tasks/cost/dispatch/confirm/help）、二次确认、审计（0600 + 轮转）、限流、端点 Bearer 鉴权、三入口适配器</li>
+    <li>控制面（v0.4 新增，枢机自研）：Agent 注册与心跳、任务下发/领取/回报、Token 成本计量、Bearer 鉴权、审计只记元数据、<b>读路径心跳超时纠偏</b>（不再轻信 Agent 自报的 online）、SQLite 持久</li>
     <li>OpenClaw 插件：<span class="mono">message_received</span> 记发送者 + <span class="mono">before_agent_reply</span> 拦命令（不走模型）；类型检查对真实 SDK 零错误</li>
-    <li>Hermes 心跳 Sidecar：generic 协议、状态退化、重试退避（带抖动）、401/403 退出码 4、优雅退出</li>
-    <li>部署：compose（read_only / cap_drop / healthcheck）/ systemd 加固 / logrotate / env 模板 / install.sh（含启动前自检与卸载）；CI 六 job；T1–T22 验收全过</li>
+    <li>Hermes 心跳 Sidecar：generic 协议、状态退化（<b>自动识别 system / --user 作用域</b>）、重试退避（带抖动）、401/403 退出码 4、优雅退出</li>
+    <li><b>双入口真机联调通过</b>：微信（ClawBot → OpenClaw → 枢机桥）与 Telegram（长轮询）都已实跑，各自独立的环境文件、单元与审计日志；Telegram 数字 user_id 由脚本自动认领，不必人工查</li>
+    <li>部署：compose（read_only / cap_drop / healthcheck）/ systemd 加固（系统作用域 + 用户作用域两套）/ logrotate / env 模板 / install.sh（含启动前自检与卸载）；CI 六 job；T1–T22 验收全过</li>
   </ul>
   <h3><span class="idx">→</span>下一步</h3>
   <ul class="list">
-    <li><b>真机联调</b>：OpenClaw 主机装 ClawBot 插件扫码 + link 枢机插件；Telegram 找 BotFather 拿令牌——手册阶段 06/07 已写好每一步</li>
-    <li>群聊命令：ClawBot 仅私聊，群场景走企业微信入口</li>
+    <li>群聊命令：ClawBot 仅私聊，群场景走企业微信入口（适配器已实现，作为备选）</li>
     <li>更多纳管：其他 CLI Agent 走 generic 心跳协议直接接入</li>
   </ul>
   <div class="note">
