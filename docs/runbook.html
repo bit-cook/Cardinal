@@ -164,6 +164,11 @@ cp deploy/env/mission-control.env.example deploy/env/mission-control.env
 chmod 600 deploy/env/mission-control.env
 $EDITOR deploy/env/mission-control.env    # 填入 MC_API_KEY；跨主机才改 MC_HOST</pre></div>
   <p class="dim"><span class="mono">deploy/env/*.env</span> 已被 gitignore（含密钥），只有 <span class="mono">*.env.example</span> 入库。</p>
+  <p>两个与「长期常驻」相关的上限值得留个意：<span class="mono">MC_HEARTBEATS_PER_AGENT</span>（默认 200）
+  裁掉过期的心跳流水——这张表只增不删的话，按默认 300s 周期一年就是 ~10 万行/Agent；
+  <span class="mono">MC_MAX_DETAIL_BYTES</span>（默认 8KB）限制单次心跳 detail 的体积，
+  防止一个失灵的 Agent 每周期塞一坨 JSON 把库撑爆。超限时控制面保留可读摘要并打
+  <span class="mono">_detailTruncated</span> 标记，<b>不会</b>整条拒绝——拒绝会让 Agent 直接掉线，更糟。</p>
   <h3><span class="idx">3.2</span>启动前自检（不监听，只验证配置）</h3>
   <div class="code"><header><span class="lang">bash</span><button class="copybtn">复制</button></header><pre>set -a; . deploy/env/mission-control.env; set +a
 node packages/mission-control/src/cli.js --check
@@ -579,6 +584,10 @@ sudo systemctl enable --now wechat-bridge-telegram</pre></div>
     <tr><td>Telegram 入口起来了，但每条命令都被拒</td><td><b>配了另一个入口的白名单、当前入口却是空的。</b>白名单取的是微信 + Telegram 的并集，而一个进程只跑一个适配器——微信消息到不了 Telegram 适配器，于是每个真实用户都被拒。服务是<b>正常启动</b>的，所以这种错特别难发现</td><td>v0.4+ <span class="mono">validateConfig</span> 会对这种组合给出警告；自查 <span class="mono">node packages/wechat-bridge/src/cli.js --check</span> 有没有「TELEGRAM_ALLOW_FROM 为空」告警</td></tr>
     <tr><td><span class="mono">systemctl enable --now wechat-bridge-telegram</span> 报单元不存在</td><td>install.sh 早年的「接下来」提示里有这个单元，但它从来没被安装过（提示与安装清单脱节）</td><td>v0.4+ 已修正：<span class="mono">SERVICES</span>（4 个单元）与 <span class="mono">COMPONENTS</span>（3 个落盘组件）分开，单元与环境文件自检都覆盖 Telegram 入口</td></tr>
     <tr><td>compose 报「需要在 deploy/.env 里配置 TELEGRAM_BOT_TOKEN」，可 env 文件里明明有</td><td>compose 的 <span class="mono">environment</span> 优先级<b>高于</b> <span class="mono">env_file</span>。服务里若还写着 <span class="mono">TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?…}</span>，等于要求同一个密钥在两个地方各存一份</td><td>v0.4+ 已删掉该覆盖行，令牌只走 <span class="mono">deploy/env/wechat-bridge-telegram.env</span>；换机器人只改这一处</td></tr>
+    <tr><td>服务起来了，但每条命令都被拒，日志里也没有原因</td><td>配置校验此前只存在于 <span class="mono">--check</span>，而 systemd / compose 起服务时没人会加那个参数。于是「telegram 适配器只配了微信白名单」会以正常启动的形式跑着，然后拒绝每一个真实用户</td><td>升级到 v0.5+：<span class="mono">createBridgeFromEnv</span> 启动前就跑校验，这类配置直接启动失败。自查 <span class="mono">node packages/wechat-bridge/src/cli.js --check</span></td></tr>
+    <tr><td>机器人的回复发进了微信群 / 群聊里刷「拒绝访问」</td><td>Telegram 适配器此前不区分会话类型，机器人被拉进群后，群里每个成员的消息都会触发白名单拒绝，而回复发往 <span class="mono">msg.chat.id</span>——也就是群</td><td>v0.5+ 只接私聊（<span class="mono">chat.type === 'private'</span>）。群聊命令需求走企业微信入口</td></tr>
+    <tr><td>数据库文件权限是 644，而同主机其他账号能进那个目录</td><td>目录级 750 是唯一一道防线，文件本身没收敛</td><td>v0.5+ 打开数据库时把 <span class="mono">.db</span> / <span class="mono">.db-wal</span> / <span class="mono">.db-shm</span> 都 chmod 0600。自查 <span class="mono">ls -l /var/lib/mission-control/</span></td></tr>
+    <tr><td>内存缓慢上涨，重启就好</td><td>限流桶 Map 与计数器键表只插不删，而键是任意字符串（发送者 ID / 客户端 IP / 请求路径），陌生人就能影响</td><td>v0.5+ 两者都有界：限流桶带闲置清扫与硬上限（只丢已回满的桶，不清正在生效的限流），计数器键数超限归并到 <span class="mono">*other</span></td></tr>
     <tr><td>Telegram 审计文件涨到很大没人轮转</td><td>logrotate 只配了 <span class="mono">audit.jsonl</span> 单个文件，Telegram 入口的 <span class="mono">telegram-audit.jsonl</span> 不在管辖范围</td><td>v0.4+ 已改为 <span class="mono">/var/log/wechat-bridge/*.jsonl</span>；自查 <span class="mono">ls -l /var/log/wechat-bridge/</span></td></tr>
     <tr><td>插件调 /openclaw 返回 401</td><td>桥配了 <span class="mono">BRIDGE_TOKEN</span> 而插件 <span class="mono">cardinalToken</span> 没填或不同值</td><td>两边填同一个值后重载插件</td></tr>
     <tr><td>微信发消息无回应</td><td>回调失效/可信 IP 未配/白名单不匹配</td><td>检查企微回调与可信 IP、桥服务日志、用户 ID</td></tr>
