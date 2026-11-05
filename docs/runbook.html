@@ -28,7 +28,7 @@
   <h1>多 Agent 舰队部署手册</h1>
   <p class="sub">用最短路径先打通「微信 → 控制面 → 一台主机上的 Agent」，确认双向收发正常，再按阶段 00–10 做完整部署。每个阶段包含<b>目标、可复制的命令/配置、验收标准</b>。</p>
   <div class="toc">
-    <a href="#qs">快速开始</a><a href="#s00">00 变量约定</a><a href="#s01">01 组网</a><a href="#s02">02 框架安装</a><a href="#s03">03 控制面</a><a href="#s04">04 OpenClaw 接入</a><a href="#s05">05 Hermes Sidecar</a><a href="#s06">06 微信入口</a><a href="#s07">07 命令路由</a><a href="#s08">08 安全加固</a><a href="#s09">09 端到端验收</a><a href="#s10">10 排查与回滚</a><a href="#appx">附录</a>
+    <a href="#qs">快速开始</a><a href="#s00">00 变量约定</a><a href="#s01">01 组网</a><a href="#s02">02 框架安装</a><a href="#s03">03 控制面</a><a href="#s04">04 OpenClaw 接入</a><a href="#s05">05 Hermes Sidecar</a><a href="#s06">06 微信入口</a><a href="#s07">07 命令路由</a><a href="#s075">07.5 网页面板</a><a href="#s08">08 安全加固</a><a href="#s09">09 端到端验收</a><a href="#s10">10 排查与回滚</a><a href="#appx">附录</a>
   </div>
 </header>
 
@@ -177,8 +177,8 @@ node packages/mission-control/src/cli.js --check
   <p class="dim">缺 <span class="mono">MC_API_KEY</span> 时 <span class="mono">--check</span> 返回退出码 2——控制面无鉴权等于把全部 Agent 交给同主机任何账号，这是红线，不做默认放行。</p>
   <h3><span class="idx">3.3</span>两种运行形态</h3>
   <div class="code"><header><span class="lang">bash · 形态 A：跟随本机用户 systemd 会话</span><button class="copybtn">复制</button></header><pre># 本机 Hermes 与 OpenClaw 都是用户级单元时，枢机跟它们同规格最省事
-# （Telegram 入口也是用户级单元，装法见阶段 7.4）
-for u in mission-control wechat-bridge wechat-bridge-telegram hermes-sidecar; do
+# （Telegram 与微信入口也是用户级单元，装法见阶段 7.4 与 6.3）
+for u in mission-control wechat-bridge wechat-bridge-telegram wechat-bridge-weixin hermes-sidecar; do
   cp deploy/systemd-user/$u.service ~/.config/systemd/user/cardinal-$u.service
 done
 systemctl --user enable --now cardinal-mission-control
@@ -311,64 +311,83 @@ journalctl -u hermes-sidecar -n 20 --no-pager</pre></div>
 
 <section id="s06">
   <p class="phno">Phase 06</p>
-  <h2>微信入口（OpenClaw ClawBot）</h2>
-  <p><b>目标：</b>用腾讯官方 <b>微信 ClawBot</b> 通道（底层协议 iLink，仅私聊）把微信接进 OpenClaw，再用枢机的 OpenClaw 插件把命令<b>确定性</b>转给命令路由——命令不走模型，普通对话照常走 AI。</p>
-  <h3><span class="idx">6.1</span>OpenClaw 主机装微信插件并扫码</h3>
+  <h2>微信入口（ClawBot / iLink，枢机原生）</h2>
+  <p><b>目标：</b>用腾讯官方 <b>微信 ClawBot</b> 通道（底层协议 iLink，仅私聊）把微信接进枢机。<b>协议由枢机自己实现</b>（<span class="mono">packages/wechat-bridge/src/ilink.js</span>）——扫码登录拿到机器人令牌后，命令路由直接长轮询收消息，<b>不需要安装 OpenClaw</b>，也不经过任何 Agent 宿主。</p>
+
+  <h3><span class="idx">6.1</span>扫码登录（一次性交互步骤）</h3>
+  <p>令牌由服务端在扫码确认后签发，因此这一步<b>必须有人在终端</b>——systemd 单元里没有人扫码。登录一次，产物长期有效。</p>
+  <div class="code"><header><span class="lang">bash · 装有 wechat-bridge 的主机</span><button class="copybtn">复制</button></header>
+<pre># 令牌与同步游标的落盘位置（权限固定 0600，目录 700）
+sudo mkdir -p /var/lib/wechat-bridge-weixin
+sudo chown wechat-bridge:wechat-bridge /var/lib/wechat-bridge-weixin
+sudo chmod 700 /var/lib/wechat-bridge-weixin
+
+# 以 wechat-bridge 账号跑登录：终端会画出二维码，用手机微信扫
+sudo -u wechat-bridge \
+  WECHAT_STATE_FILE=/var/lib/wechat-bridge-weixin/state.json \
+  WECHAT_ALLOW_FROM=占位 \
+  node /opt/wechat-bridge/src/cli.js --adapter weixin --login</pre></div>
+  <ul class="list">
+    <li>服务端可能要求输入手机微信上显示的数字（配对码），按提示输入即可</li>
+    <li>成功后打印 <b>扫码账号 ID</b>——把它抄进 <span class="mono">WECHAT_ALLOW_FROM</span>，否则白名单会拒绝它</li>
+    <li>二维码 5 分钟过期会自动刷新，最多刷 2 次；超次就重新跑登录</li>
+  </ul>
+  <div class="note">
+    <p class="lab">容器里做不了扫码</p>
+    <p>docker compose 形态下，先在<b>宿主机</b>上以 <span class="mono">wechat-bridge</span> 账号跑一次 <span class="mono">--login</span> 生成 <span class="mono">state.json</span>，再把它以卷（<span class="mono">bridge-weixin-state</span>）的形式挂进容器。</p>
+  </div>
+
+  <h3><span class="idx">6.2</span>配置环境文件</h3>
+  <div class="code"><header><span class="lang">bash</span><button class="copybtn">复制</button></header>
+<pre>cp deploy/env/wechat-bridge-weixin.env.example deploy/env/wechat-bridge-weixin.env
+chmod 600 deploy/env/wechat-bridge-weixin.env
+$EDITOR deploy/env/wechat-bridge-weixin.env
+#   ADAPTER=weixin
+#   WECHAT_STATE_FILE=/var/lib/wechat-bridge-weixin/state.json
+#   WECHAT_ALLOW_FROM=扫码账号ID        ← 白名单只留本人（红线）
+#   AUDIT_LOG=/var/log/wechat-bridge/weixin-audit.jsonl
+# 启动前只校验配置、不起服务：
+sudo -u wechat-bridge node /opt/wechat-bridge/src/cli.js --adapter weixin --check</pre></div>
+
+  <h3><span class="idx">6.3</span>启动</h3>
+  <div class="code"><header><span class="lang">bash · 系统作用域</span><button class="copybtn">复制</button></header>
+<pre>sudo systemctl enable --now wechat-bridge-weixin
+journalctl -u wechat-bridge-weixin -f</pre></div>
+  <div class="code"><header><span class="lang">bash · 用户作用域</span><button class="copybtn">复制</button></header>
+<pre>cp deploy/systemd-user/wechat-bridge-weixin.service \
+   ~/.config/systemd/user/cardinal-wechat-bridge-weixin.service
+systemctl --user enable --now cardinal-wechat-bridge-weixin</pre></div>
+
+  <h3><span class="idx">6.4</span>验收</h3>
+  <ul class="list">
+    <li>日志出现 <span class="mono">weixin: 开始长轮询</span>，无持续退避</li>
+    <li>微信发 <span class="mono">/ping</span> 收到 <span class="mono">pong · …</span></li>
+    <li>把机器人拉进群后发 <span class="mono">/ping</span>：<b>无任何回复</b>（群聊显式忽略，不向全群公告白名单的存在）</li>
+    <li>微信发图片 / 语音 / 文件：同样无回复（命令协议是纯文本）</li>
+    <li><span class="mono">/dispatch</span> 先回确认令牌，<span class="mono">/confirm</span> 后才真正下发</li>
+    <li>换令牌或重登：重跑 6.1，再 <span class="mono">systemctl restart wechat-bridge-weixin</span></li>
+  </ul>
+
+  <h3><span class="idx">6.5</span>可选项：仍想经 OpenClaw 转发</h3>
+  <p>微信主线已不需要 OpenClaw。若你本来就跑着 OpenClaw、并希望普通对话也由它应答，可以改走插件路径：</p>
   <div class="code"><header><span class="lang">bash · node-openclaw</span><button class="copybtn">复制</button></header>
 <pre>openclaw plugins install "@tencent-weixin/openclaw-weixin" --force
 openclaw gateway restart
 # 控制台「通道 → 添加通道 → 微信」扫码绑定（仅私聊）
-openclaw channels status --probe</pre></div>
-  <h3><span class="idx">6.2</span>安装枢机 OpenClaw 插件（cardinal-bridge）</h3>
-  <div class="code"><header><span class="lang">bash · node-openclaw</span><button class="copybtn">复制</button></header>
-<pre>git clone https://github.com/bit-cook/shuji.git /opt/shuji
 openclaw plugins install --link /opt/shuji/packages/openclaw-cardinal-plugin --force
 openclaw plugins enable cardinal-bridge</pre></div>
-  <h3><span class="idx">6.3</span>授予会话钩子权限并指向枢机</h3>
-  <div class="code"><header><span class="lang">json · openclaw.json</span><button class="copybtn">复制</button></header>
-<pre>{
-  "plugins": {
-    "entries": {
-      "cardinal-bridge": {
-        "enabled": true,
-        "config": {
-          "cardinalBase": "http://127.0.0.1:8080",
-          "cardinalToken": "必填：与桥的 BRIDGE_TOKEN 同一个值"
-        }
-      }
-    }
-  }
-}</pre></div>
-  <div class="code"><header><span class="lang">bash · 验证注册</span><button class="copybtn">复制</button></header>
-<pre>openclaw plugins inspect cardinal-bridge --runtime --json   # 确认 message_received + before_agent_reply 已注册</pre></div>
-  <p class="dim">插件用 <span class="mono">message_received</span> 记录发送者身份（<span class="mono">before_agent_reply</span> 的 ctx 不带 senderId，而枢机白名单终审必须要它），再用 <span class="mono">before_agent_reply</span> 拦命令。命令必须是某一行以 <span class="mono">/命令词</span> 开头才算命中——普通对话里提到命令不会被劫持。</p>
-  <h3><span class="idx">6.4</span>启动命令路由（HTTP 适配器）</h3>
-  <div class="code"><header><span class="lang">bash · mc-console</span><button class="copybtn">复制</button></header>
-<pre># /etc/wechat-bridge.env 关键项：
-#   WECHAT_ALLOW_FROM=你的微信用户ID   ← 白名单只留本人（红线）
-#   BRIDGE_TOKEN=强随机字符串          ← 与插件 cardinalToken 同值，配了即强制 Bearer
-#   AUDIT_LOG=/var/log/wechat-bridge/audit.jsonl
-#   ADAPTER=http                      ← 插件走 /openclaw 端点
-# 启动前只校验配置、不起服务：
-sudo -u wechat-bridge node /opt/wechat-bridge/src/cli.js --check
-sudo systemctl enable --now wechat-bridge
-journalctl -u wechat-bridge -f</pre></div>
-  <h3><span class="idx">6.5</span>验收</h3>
-  <ul class="list">
-    <li>微信发 <span class="mono">/ping</span> 收到 <span class="mono">pong · …</span>（命令不经模型）</li>
-    <li>微信发普通对话（如「今天有什么安排」）由 OpenClaw AI 正常应答</li>
-    <li><span class="mono">/dispatch</span> 先回确认令牌，<span class="mono">/confirm</span> 后才真正下发</li>
-  </ul>
+  <p class="dim">此时桥改用 <span class="mono">ADAPTER=http</span> 的 <span class="mono">/openclaw</span> 端点（环境文件 <span class="mono">wechat-bridge.env</span>），插件在 <span class="mono">before_agent_reply</span> 钩子上拦命令——命中就不调模型。<b>两条微信路径不要同时开</b>：同一个机器人令牌只能被一个客户端长轮询。</p>
+
   <div class="note">
     <p class="lab">备选入口 · 2026-11</p>
-    <p><b>企业微信自建应用</b>为可选备选（命令路由 <span class="mono">ADAPTER=wecom</span>，配置见 <span class="mono">deploy/env/wechat-bridge.env.example</span>）。<b>Gewechat 已停止维护、无法登录，不再推荐</b>。注意 ClawBot 仅支持私聊；群聊命令需求走企业微信。Telegram 入口见阶段 07.4。</p>
+    <p><b>企业微信自建应用</b>为可选备选（命令路由 <span class="mono">ADAPTER=wecom</span>，配置见 <span class="mono">deploy/env/wechat-bridge.env.example</span>）。<b>Gewechat 已停止维护、无法登录，不再推荐</b>。群聊命令需求走企业微信。Telegram 入口见阶段 07.4。</p>
   </div>
 </section>
 
 <section id="s07">
   <p class="phno">Phase 07</p>
   <h2>命令路由</h2>
-  <p><b>目标：</b>把微信 / Telegram 文本命令翻译成管理面 REST 调用，并把结果格式化回推；核心逻辑平台无关，各入口只是适配器不同。正式实现已入库 <span class="mono">github.com/bit-cook/shuji → packages/wechat-bridge</span>（含白名单、二次确认、审计、企业微信加解密、Telegram 长轮询），本页保留核心逻辑示意。</p>
+  <p><b>目标：</b>把微信 / Telegram 文本命令翻译成管理面 REST 调用，并把结果格式化回推；核心逻辑平台无关，各入口只是适配器不同。正式实现已入库 <span class="mono">github.com/bit-cook/shuji → packages/wechat-bridge</span>（含白名单、二次确认、审计、企业微信加解密、Telegram 与微信 iLink 长轮询），本页保留核心逻辑示意。</p>
   <h3><span class="idx">7.1</span>命令协议（微信 / Telegram 直接发送文本）</h3>
   <div class="tw"><table>
     <tr><th>命令</th><th>含义</th><th>管理面动作</th></tr>
@@ -449,10 +468,13 @@ async function handleCommand(text, fromUser) {
 }
 
 // 入口适配（正式实现见 github.com/bit-cook/shuji）：
-// 微信（OpenClaw ClawBot）-> cardinal-bridge 插件挂 before_agent_reply 钩子，
-//   命中命令即 POST 到桥的 /openclaw 端点，回复经微信通道返回；
+// 微信（ClawBot / iLink）-> 桥内置长轮询适配器，扫码拿到机器人令牌后直连，
+//   不经过 OpenClaw，也不需要安装它；
 // Telegram -> 桥内置长轮询适配器（getUpdates/sendMessage），无需公网地址；
-// 企业微信 -> 桥内置回调适配器（验签加解密），主动推送用应用消息接口。
+// 企业微信 -> 桥内置回调适配器（验签加解密），主动推送用应用消息接口；
+// OpenClaw 插件 -> 桥的 HTTP 适配器（/openclaw 端点），可选路径。
+// 新增通讯工具：在 src/adapters/ 加一个文件，实现 start()/stop() 并在
+// ADAPTERS 里登记名字即可，路由核心不用改。
 module.exports = {handleCommand};</pre></div>
   <h3><span class="idx">7.3</span>systemd 常驻</h3>
   <div class="code"><header><span class="lang">ini · /etc/systemd/system/wechat-bridge.service</span><button class="copybtn">复制</button></header>
@@ -490,7 +512,7 @@ node packages/wechat-bridge/src/cli.js --check   # 启动前自检</pre></div>
    ~/.config/systemd/user/cardinal-wechat-bridge-telegram.service
 systemctl --user enable --now cardinal-wechat-bridge-telegram
 systemctl --user status cardinal-wechat-bridge-telegram</pre></div>
-  <div class="code"><header><span class="lang">bash · 形态 B：系统作用域（install.sh 一并装）</span><button class="copybtn">复制</button></header><pre>sudo deploy/install.sh          # SERVICES 含 4 个单元，自检覆盖 Telegram 环境文件
+  <div class="code"><header><span class="lang">bash · 形态 B：系统作用域（install.sh 一并装）</span><button class="copybtn">复制</button></header><pre>sudo deploy/install.sh          # SERVICES 含 5 个单元，自检覆盖 Telegram 环境文件
 sudo cp deploy/env/wechat-bridge-telegram.env /etc/wechat-bridge-telegram.env
 sudo chmod 600 /etc/wechat-bridge-telegram.env
 sudo systemctl enable --now wechat-bridge-telegram</pre></div>
@@ -512,7 +534,42 @@ sudo systemctl enable --now wechat-bridge-telegram</pre></div>
     <li>Telegram 发送 <span class="mono">/ping</span> 收到 pong；非白名单用户发消息被拒并在审计留痕</li>
     <li><span class="mono">/list</span> 能返回两个框架全部实例的在线状态</li>
     <li><span class="mono">/dispatch</span> 下发后，目标 Agent 面板出现对应任务</li>
-    <li>两个入口<b>同时</b>可用：微信走 <span class="mono">ADAPTER=http</span> 的 <span class="mono">/openclaw</span>，Telegram 走长轮询，互不抢占</li>
+    <li>三个入口<b>同时</b>可用：微信走 iLink 长轮询（<span class="mono">ADAPTER=weixin</span>）、Telegram 走长轮询（<span class="mono">ADAPTER=telegram</span>）、企业微信走回调（<span class="mono">ADAPTER=wecom</span>），各一个桥进程，互不抢占</li>
+  </ul>
+</section>
+
+<section id="s075">
+  <p class="phno">Phase 07.5</p>
+  <h2>网页面板</h2>
+  <p><b>目标：</b>在控制面同一个端口上看 Agent 状态、任务计数与 Token 成本。面板<b>只读</b>：全部数据来自 <span class="mono">/panel/api/snapshot</span> 一个接口，
+  没有下发任务的写接口，也没有跨站请求伪造面。</p>
+  <h3><span class="idx">7.5.1</span>登录与会话</h3>
+  <p>面板页本身免登录即可加载，数据接口要会话。用 <span class="mono">MC_API_KEY</span> 换一个签名 Cookie：</p>
+  <div class="code"><header><span class="lang">bash</span><button class="copybtn">复制</button></header>
+<pre># 换会话 Cookie（一次性交换，不长期把 API Key 放进浏览器）
+curl -s -c /tmp/panel.cookie -X POST http://127.0.0.1:3000/panel/login \
+  -H 'Content-Type: application/json' -d '{"apiKey":"&lt;MC_API_KEY&gt;"}'
+# 带 Cookie 读快照
+curl -s -b /tmp/panel.cookie http://127.0.0.1:3000/panel/api/snapshot</pre></div>
+  <ul class="list">
+    <li>Cookie 值形如 <span class="mono">&lt;会话 ID&gt;.&lt;过期时间&gt;.&lt;HMAC-SHA256&gt;</span>，签名用 <span class="mono">MC_API_KEY</span> 算，改一个字节就失效</li>
+    <li>属性为 <span class="mono">HttpOnly</span> + <span class="mono">SameSite=Strict</span>，JavaScript 读不到</li>
+    <li>登录限流：同一来源 IP 每分钟 5 次，<b>限流期间正确的 Key 也一律拒绝</b></li>
+    <li>默认 12 小时过期（<span class="mono">MC_PANEL_SESSION_TTL_MS</span>），<span class="mono">POST /panel/logout</span> 立即失效</li>
+  </ul>
+  <h3><span class="idx">7.5.2</span>配置与部署</h3>
+  <div class="code"><header><span class="lang">bash · deploy/env/mission-control.env</span><button class="copybtn">复制</button></header>
+<pre>MC_PANEL=1                    # 0 则 /panel 全部 404
+MC_PANEL_SESSION_TTL_MS=43200000
+MC_PANEL_LOGIN_PER_MIN=5</pre></div>
+  <p class="dim">面板与 <span class="mono">/api/*</span> 共用一个监听端口，因此自动继承同一套约束：默认只绑 <span class="mono">127.0.0.1</span>（拒绝 <span class="mono">0.0.0.0</span>）、
+  每 IP 全局限流、登录成功与失败都写审计。单文件 HTML，零前端依赖，深浅色主题跟随系统并可手动覆盖。</p>
+  <h3><span class="idx">7.5.3</span>验收</h3>
+  <ul class="list">
+    <li>浏览器打开 <span class="mono">http://127.0.0.1:3000/panel</span>，输对 Key 后看到 Agent 磁贴、任务计数、成本汇总</li>
+    <li>不带 Cookie 直接请求 <span class="mono">/panel/api/snapshot</span> 返回 401；改 Cookie 一个字节同样 401</li>
+    <li>面板上找不到任何「下发任务 / 重启 Agent」按钮——这是设计而非缺失</li>
+    <li>连续 6 次输错 Key，第 6 次起连正确的 Key 也被拒，直到限流窗口过去</li>
   </ul>
 </section>
 
@@ -561,10 +618,14 @@ sudo systemctl enable --now wechat-bridge-telegram</pre></div>
     <tr><td class="mono">T20</td><td>工人 <span class="mono">claim</span> 后 <span class="mono">complete</span> 带 tokens</td><td><span class="mono">/cost</span> 计入该用量</td><td>计量</td></tr>
     <tr><td class="mono">T21</td><td>重启命令路由后再查</td><td>Agent 与任务都还在（真 SQLite，不是内存）</td><td>韧性</td></tr>
     <tr><td class="mono">T22</td><td>查控制面审计文件</td><td>全量留痕，且不含 API Key</td><td>审计</td></tr>
+    <tr><td class="mono">T23</td><td>微信（iLink）白名单用户发 <span class="mono">/ping</span>；陌生人发 <span class="mono">/list</span></td><td>前者收到 pong；后者收到拒绝访问</td><td>入口</td></tr>
+    <tr><td class="mono">T24</td><td>微信把机器人拉进群后发命令；只发图片</td><td>均无任何回复；<span class="mono">getupdates</span> 的同步游标仍按服务端返回值回传</td><td>入口</td></tr>
+    <tr><td class="mono">T25</td><td>浏览器登录面板；不带会话直接请求快照接口</td><td>登录后快照有真实 Agent 与成本；无会话 401</td><td>面板</td></tr>
+    <tr><td class="mono">T26</td><td>改 Cookie 一个字节；拿 Bearer 冒充面板；在面板上找写操作</td><td>改动的 Cookie 401；Bearer 进不了面板；面板没有任何写接口</td><td>安全</td></tr>
   </table></div>
-  <p class="dim">其中 T1–T14 可在无真实凭证下自动复跑：<span class="mono">node test/e2e.js</span>（mock 控制面 + mock Hermes RPC + mock Telegram + 真实 Sidecar 子进程 + 真实桥）。<br>
-  T15–T22 另起一节打<b>真控制面</b>：<span class="mono">mission-control</span> 与 Sidecar 都以子进程运行（走真实 CLI 与环境变量解析），
-  验证 Bearer 鉴权、心跳落库、dispatch、心跳超时纠偏、claim/complete 计量、<b>重启后持久化</b>与审计不含密钥。</p>
+  <p class="dim">其中 T1–T14、T23–T26 可在无真实凭证下自动复跑：<span class="mono">node test/e2e.js</span>（mock 控制面 + mock Hermes RPC + mock Telegram + mock iLink + 真实 Sidecar 子进程 + 真实桥）。<br>
+  T15–T22、T25–T26 另起一节打<b>真控制面</b>：<span class="mono">mission-control</span> 与 Sidecar 都以子进程运行（走真实 CLI 与环境变量解析），
+  验证 Bearer 鉴权、心跳落库、dispatch、心跳超时纠偏、claim/complete 计量、<b>重启后持久化</b>、审计不含密钥，以及网页面板的会话边界。</p>
 </section>
 
 <section id="s10">
@@ -578,11 +639,11 @@ sudo systemctl enable --now wechat-bridge-telegram</pre></div>
     <tr><td>Hermes 明明在跑，Sidecar 却报 offline</td><td><b>Hermes 是用户级 systemd 单元</b>（<span class="mono">~/.config/systemd/user/</span>）。在 root 下不带 <span class="mono">--user</span> 查 <span class="mono">systemctl is-active hermes-gateway.service</span> 会返回退出码 3「没有这个单元」，Sidecar 于是判离线</td><td>环境文件设 <span class="mono">SYSTEMD_UNIT=hermes-gateway.service</span> 与 <span class="mono">SYSTEMD_SCOPE=user</span>（或留 <span class="mono">auto</span>：遇「无此单元」自动改查 <span class="mono">--user</span>）；确认命令 <span class="mono">systemctl --user is-active hermes-gateway.service</span></td></tr>
     <tr><td>刚心跳成功，/list 却立刻显示离线</td><td>心跳报文 <span class="mono">reportedAt</span> 是<b>秒</b>（<span class="mono">int(time.time())</span>），控制面却拿它和 <span class="mono">Date.now()</span>（毫秒）比大小，差值天文数字 → 永远判超时</td><td>升级到 v0.4+：控制面按量级把秒换算成毫秒。自查：<span class="mono">curl /api/agents/&lt;id&gt;</span> 看 <span class="mono">lastSeenAt</span> 是否是 13 位毫秒</td></tr>
     <tr><td>Agent 显示在线但实际早已停机</td><td>面板直接采用 Agent 最后自报的状态，没有超时纠偏</td><td>控制面 <span class="mono">MC_STALE_SEC</span>（默认 900）内无新心跳即报 offline，并附 <span class="mono">reportedStatus</span> 与 <span class="mono">stale: true</span>；按心跳周期调整该值</td></tr>
-    <tr><td>服务反复重启停不下来</td><td><span class="mono">StartLimitIntervalSec</span> / <span class="mono">StartLimitBurst</span> 写在了 <span class="mono">[Service]</span> 段——这两个键属于 <span class="mono">[Unit]</span>，写错位置会被静默忽略，重启上限一直是空转</td><td>v0.4+ 六个单元文件已移到 <span class="mono">[Unit]</span> 段；自查 <span class="mono">systemd-analyze verify &lt;unit&gt;</span> 应无 Unknown key 告警</td></tr>
+    <tr><td>服务反复重启停不下来</td><td><span class="mono">StartLimitIntervalSec</span> / <span class="mono">StartLimitBurst</span> 写在了 <span class="mono">[Service]</span> 段——这两个键属于 <span class="mono">[Unit]</span>，写错位置会被静默忽略，重启上限一直是空转</td><td>v0.4+ 单元文件已移到 <span class="mono">[Unit]</span> 段；自查 <span class="mono">systemd-analyze verify &lt;unit&gt;</span> 应无 Unknown key 告警</td></tr>
     <tr><td>心跳返回 401/403</td><td>API Key 不一致或无权限</td><td>核对 EnvironmentFile 与管理面 Key；Sidecar 会以退出码 4 结束，<span class="mono">systemctl status hermes-sidecar</span> 可见 failed</td></tr>
     <tr><td>命令全部返回「拒绝访问」</td><td>白名单里的 ID 与通道实际 ID 不一致</td><td>看审计日志里的 <span class="mono">from</span> 字段，把它加进 <span class="mono">WECHAT_ALLOW_FROM</span> / <span class="mono">TELEGRAM_ALLOW_FROM</span></td></tr>
     <tr><td>Telegram 入口起来了，但每条命令都被拒</td><td><b>配了另一个入口的白名单、当前入口却是空的。</b>白名单取的是微信 + Telegram 的并集，而一个进程只跑一个适配器——微信消息到不了 Telegram 适配器，于是每个真实用户都被拒。服务是<b>正常启动</b>的，所以这种错特别难发现</td><td>v0.4+ <span class="mono">validateConfig</span> 会对这种组合给出警告；自查 <span class="mono">node packages/wechat-bridge/src/cli.js --check</span> 有没有「TELEGRAM_ALLOW_FROM 为空」告警</td></tr>
-    <tr><td><span class="mono">systemctl enable --now wechat-bridge-telegram</span> 报单元不存在</td><td>install.sh 早年的「接下来」提示里有这个单元，但它从来没被安装过（提示与安装清单脱节）</td><td>v0.4+ 已修正：<span class="mono">SERVICES</span>（4 个单元）与 <span class="mono">COMPONENTS</span>（3 个落盘组件）分开，单元与环境文件自检都覆盖 Telegram 入口</td></tr>
+    <tr><td><span class="mono">systemctl enable --now wechat-bridge-telegram</span> 报单元不存在</td><td>install.sh 早年的「接下来」提示里有这个单元，但它从来没被安装过（提示与安装清单脱节）</td><td>v0.4+ 已修正：<span class="mono">SERVICES</span>（5 个单元）与 <span class="mono">COMPONENTS</span>（3 个落盘组件）分开，单元与环境文件自检都覆盖 Telegram 与微信入口</td></tr>
     <tr><td>compose 报「需要在 deploy/.env 里配置 TELEGRAM_BOT_TOKEN」，可 env 文件里明明有</td><td>compose 的 <span class="mono">environment</span> 优先级<b>高于</b> <span class="mono">env_file</span>。服务里若还写着 <span class="mono">TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?…}</span>，等于要求同一个密钥在两个地方各存一份</td><td>v0.4+ 已删掉该覆盖行，令牌只走 <span class="mono">deploy/env/wechat-bridge-telegram.env</span>；换机器人只改这一处</td></tr>
     <tr><td>服务起来了，但每条命令都被拒，日志里也没有原因</td><td>配置校验此前只存在于 <span class="mono">--check</span>，而 systemd / compose 起服务时没人会加那个参数。于是「telegram 适配器只配了微信白名单」会以正常启动的形式跑着，然后拒绝每一个真实用户</td><td>升级到 v0.5+：<span class="mono">createBridgeFromEnv</span> 启动前就跑校验，这类配置直接启动失败。自查 <span class="mono">node packages/wechat-bridge/src/cli.js --check</span></td></tr>
     <tr><td>机器人的回复发进了微信群 / 群聊里刷「拒绝访问」</td><td>Telegram 适配器此前不区分会话类型，机器人被拉进群后，群里每个成员的消息都会触发白名单拒绝，而回复发往 <span class="mono">msg.chat.id</span>——也就是群</td><td>v0.5+ 只接私聊（<span class="mono">chat.type === 'private'</span>）。群聊命令需求走企业微信入口</td></tr>
@@ -591,7 +652,12 @@ sudo systemctl enable --now wechat-bridge-telegram</pre></div>
     <tr><td>Telegram 审计文件涨到很大没人轮转</td><td>logrotate 只配了 <span class="mono">audit.jsonl</span> 单个文件，Telegram 入口的 <span class="mono">telegram-audit.jsonl</span> 不在管辖范围</td><td>v0.4+ 已改为 <span class="mono">/var/log/wechat-bridge/*.jsonl</span>；自查 <span class="mono">ls -l /var/log/wechat-bridge/</span></td></tr>
     <tr><td>插件调 /openclaw 返回 401</td><td>桥配了 <span class="mono">BRIDGE_TOKEN</span> 而插件 <span class="mono">cardinalToken</span> 没填或不同值</td><td>两边填同一个值后重载插件</td></tr>
     <tr><td>微信发消息无回应</td><td>回调失效/可信 IP 未配/白名单不匹配</td><td>检查企微回调与可信 IP、桥服务日志、用户 ID</td></tr>
-    <tr><td>OpenClaw 微信通道无响应</td><td>clawbot 插件未装/扫码过期/cardinal-bridge 未注册钩子</td><td><span class="mono">openclaw channels status --probe</span>；重新扫码；<span class="mono">openclaw plugins inspect cardinal-bridge --runtime --json</span></td></tr>
+    <tr><td>微信入口启动即失败，提示未登录</td><td>没跑过一次性扫码，或 <span class="mono">WECHAT_STATE_FILE</span> 指错 / 不是绝对路径</td><td>按阶段 6.1 重跑 <span class="mono">--adapter weixin --login</span>；<span class="mono">--check</span> 会明确报缺令牌还是缺文件</td></tr>
+    <tr><td>微信扫码后一直没下文</td><td>服务端返回 <span class="mono">scaned_but_redirect</span>，要求把轮询切到 <span class="mono">redirect_host</span>，而桥还在原接入点上等</td><td>v0.6+ 已按该状态切接入点；若手工实现，必须跟随 <span class="mono">redirect_host</span>，否则扫描看起来像卡住</td></tr>
+    <tr><td>微信能收命令，但重启桥后旧消息又被处理一遍</td><td><span class="mono">getupdates</span> 的同步游标没被持久化，桥拿空游标重来，服务端于是重放积压</td><td>v0.6+ 游标随状态文件一起落盘（0600，5 秒节流）；自查 <span class="mono">state.json</span> 里的 <span class="mono">getUpdatesBuf</span> 是否在推进</td></tr>
+    <tr><td>面板打不开，全部 404</td><td><span class="mono">MC_PANEL=0</span> 或该版本没有面板</td><td>环境文件设 <span class="mono">MC_PANEL=1</span> 后重启控制面；<span class="mono">curl -s localhost:3000/panel</span> 应返回 HTML</td></tr>
+    <tr><td>面板输对 Key 仍然 401</td><td>Cookie 被改、会话已过期，或该 IP 正被登录限流</td><td>换浏览器再登一次；限流窗口（每分钟 5 次）内正确的 Key 也会被拒，这是有意的</td></tr>
+    <tr><td>OpenClaw 微信通道无响应（可选的转发路径）</td><td>clawbot 插件未装 / 扫码过期 / cardinal-bridge 未注册钩子</td><td><span class="mono">openclaw channels status --probe</span>；重新扫码；<span class="mono">openclaw plugins inspect cardinal-bridge --runtime --json</span></td></tr>
     <tr><td>任务下发失败</td><td>agentId 错误或目标网关离线</td><td>先 /list 确认 ID 与在线状态再下发</td></tr>
     <tr><td>成本数据为空</td><td>适配器未上报用量</td><td>确认状态目录绝对路径，重启对应网关</td></tr>
   </table></div>
@@ -599,9 +665,9 @@ sudo systemctl enable --now wechat-bridge-telegram</pre></div>
   <div class="code"><header><span class="lang">bash · 逐机执行</span><button class="copybtn">复制</button></header>
 <pre># 1. 先备份数据
 sudo tar -czf ~/fleet-backup-$(date +%F).tgz \
-  /opt/mission-control/data /opt/wechat-bridge /opt/hermes-sidecar
+  /opt/mission-control/data /opt/wechat-bridge /opt/wechat-bridge-weixin /opt/hermes-sidecar
 # 2. 停用上层服务
-sudo systemctl disable --now wechat-bridge wechat-bridge-telegram hermes-sidecar
+sudo systemctl disable --now wechat-bridge wechat-bridge-telegram wechat-bridge-weixin hermes-sidecar
 cd /opt/mission-control &amp;&amp; docker compose down   # 不加 -v，保留数据卷
 # 3. 停用各机网关并退出 Tailscale（如需彻底拆除）
 sudo systemctl disable --now agent-gateway

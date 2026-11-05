@@ -26,7 +26,7 @@
 <header class="hero wrap">
   <p class="kicker">Read First · 01</p>
   <h1>给其他 Agent 的交接文档</h1>
-  <p class="sub">本项目代号 <b>Agenos</b>，定位是一个 <b>Agent OS</b>：把分散在不同主机上的 Hermes、OpenClaw 等异构 Agent 纳管到一个控制面，用户通过<b>微信（OpenClaw ClawBot）或 Telegram</b> 发命令、收状态。控制面品牌名为 <b>Cardinal（枢机）</b>。</p>
+  <p class="sub">本项目代号 <b>Agenos</b>，定位是一个 <b>Agent OS</b>：把分散在不同主机上的 Hermes 等异构 Agent 纳管到一个控制面，用户通过<b>微信（ClawBot）或 Telegram</b> 发命令、收状态。控制面品牌名为 <b>Cardinal（枢机）</b>。</p>
   <div class="toc">
     <a href="#s01">01 最高原则</a><a href="#s02">02 四层架构</a><a href="#s03">03 技术选型</a><a href="#s04">04 命名规范</a><a href="#s05">05 部署入口</a><a href="#s06">06 安全红线</a><a href="#s07">07 项目地址</a><a href="#s08">08 避坑清单</a><a href="#s09">09 命名方法论</a><a href="#s10">10 术语表</a>
   </div>
@@ -68,7 +68,7 @@
     <tr><td><b>Mission-Control</b></td><td>MIT / Node</td><td>中央管理面，101 个 REST API + Webhook，SQLite 单文件，约 50 Agent 上限，原生适配 OpenClaw，Hermes 走 generic 心跳</td></tr>
     <tr><td><b>OpenClaw</b></td><td>MIT / Node、pnpm</td><td>节点 Agent，控制台默认 <span class="mono">127.0.0.1:18789</span>，由 Mission-Control 原生适配接入</td></tr>
     <tr><td><b>Hermes Agent</b></td><td>MIT / Python</td><td>Nous Research 出品，支持 Linux/macOS/WSL2，无原生适配，通过心跳 Sidecar 上报</td></tr>
-    <tr><td><b>入口适配</b></td><td>Node / Python</td><td>微信：OpenClaw 官方 <span class="mono">@tencent-weixin/openclaw-weixin</span>（ClawBot，iLink 协议，仅私聊）+ 枢机 <span class="mono">cardinal-bridge</span> 插件（<span class="mono">message_received</span> 记发送者 + <span class="mono">before_agent_reply</span> 拦命令，命令不走模型）；Telegram：Bot API 长轮询；企业微信自建应用为可选备选。命令路由正式实现已入库 <span class="mono">github.com/bit-cook/shuji</span>（<span class="mono">packages/wechat-bridge</span>、<span class="mono">packages/openclaw-cardinal-plugin</span>、<span class="mono">packages/hermes-sidecar</span>），含二次确认、审计日志、端点 Bearer 鉴权、限流、单测与 CI</td></tr>
+    <tr><td><b>入口适配</b></td><td>Node / Python</td><td>微信：腾讯官方 iLink 协议（ClawBot，仅私聊），<b>枢机原生实现</b>（扫码登录 + 长轮询，不需要装 OpenClaw）；Telegram：Bot API 长轮询；企业微信自建应用为可选备选；OpenClaw 插件（<span class="mono">before_agent_reply</span> 拦命令，不走模型）是可选的转发路径。命令路由正式实现已入库 <span class="mono">github.com/bit-cook/shuji</span>（<span class="mono">packages/wechat-bridge</span>、<span class="mono">packages/openclaw-cardinal-plugin</span>、<span class="mono">packages/hermes-sidecar</span>），含二次确认、审计日志、端点 Bearer 鉴权、限流、单测与 CI</td></tr>
     <tr><td><b>Tailscale</b></td><td>组网</td><td>跨主机加密内网，MagicDNS 固定主机名，端口不暴露公网</td></tr>
   </table></div>
 </section>
@@ -97,7 +97,7 @@
     <li>所有主机装 Tailscale 并互相 ping 通</li>
     <li>主机 A 装好 OpenClaw 并启动</li>
     <li>Docker 启动 Mission-Control，仅监听 Tailscale 网卡</li>
-    <li>部署命令路由与入口适配（OpenClaw 插件 / Telegram），配好白名单</li>
+    <li>部署命令路由与入口适配（微信 iLink 扫码登录 / Telegram），配好白名单</li>
     <li>微信（或 Telegram）发 <span class="mono">/list</span> 看到 Agent 在线、<span class="mono">/ping</span> 收到回复，即跑通</li>
   </ol>
 </section>
@@ -123,7 +123,7 @@
   </ul>
   <div class="note">
     <p class="lab">勘注 · 2026-11</p>
-    <p>微信主线已定为 <b>OpenClaw ClawBot</b>（腾讯官方 iLink 通道，<span class="mono">@tencent-weixin/openclaw-weixin</span>）+ 枢机 <span class="mono">cardinal-bridge</span> 插件。<b>Gewechat 已宣布终止维护、无法登录</b>（AstrBot issue #1443，2025-04），不再推荐。企业微信自建应用保留为可选备选。</p>
+    <p>微信主线已定为腾讯官方 iLink 通道（<b>ClawBot</b>，<span class="mono">@tencent-weixin/openclaw-weixin</span> 是该通道的 OpenClaw 接入实现）。<b>枢机自己实现了这条协议</b>（<span class="mono">packages/wechat-bridge/src/ilink.js</span>），扫码登录后长轮询收消息——<b>使用枢机不再需要安装 OpenClaw</b>；那个插件降级为可选项，只服务于仍想经 OpenClaw 转发的场景。<b>Gewechat 已宣布终止维护、无法登录</b>（AstrBot issue #1443，2025-04），不再推荐。企业微信自建应用保留为可选备选。</p>
   </div>
 </section>
 
@@ -132,7 +132,7 @@
   <h2>项目地址</h2>
   <div class="tw"><table>
     <tr><th>项目</th><th>地址</th></tr>
-    <tr><td><b>枢机（实现仓库）</b></td><td><span class="mono">github.com/bit-cook/shuji</span> — 命令路由、心跳 Sidecar、部署清单、CI</td></tr>
+    <tr><td><b>枢机（实现仓库）</b></td><td><span class="mono">github.com/bit-cook/shuji</span> — 命令路由（微信 iLink 原生 / Telegram / 企微 / HTTP）、控制面与网页面板、心跳 Sidecar、部署清单、CI</td></tr>
     <tr><td><b>枢机项目计划（本站）</b></td><td><span class="mono">github.com/bit-cook/cardinal-plan</span></td></tr>
     <tr><td><b>OpenClaw</b></td><td><span class="mono">github.com/openclaw/openclaw</span> ；官网 <span class="mono">openclaw.ai</span></td></tr>
     <tr><td><b>Hermes Agent</b></td><td><span class="mono">github.com/NousResearch/hermes-agent</span></td></tr>
