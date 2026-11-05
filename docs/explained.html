@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>枢机项目详解 — Cardinal · 枢机</title>
+<meta name="description" content="枢机（Cardinal）项目详解：一句话定位、四层架构、微信 ClawBot 与 Telegram 两条入口链路、一条命令的完整旅程、安全红线如何落地、代码地图、测试验收与部署形态。">
+<link rel="icon" type="image/svg+xml" href="../favicon.svg">
+<link rel="stylesheet" href="docs.css">
+<style>
+/* 流程图 */
+.flow{margin:26px 0;display:flex;flex-direction:column;gap:0}
+.frow{display:flex;gap:14px;align-items:stretch;flex-wrap:wrap}
+.fbox{flex:1;min-width:200px;border:1px solid var(--line);border-radius:12px;background:var(--bg2);padding:14px 18px}
+.fbox .r{font-size:11px;letter-spacing:.28em;color:var(--red);font-weight:800;text-transform:uppercase}
+.fbox h4{font-size:16px;font-weight:800;margin:6px 0 4px}
+.fbox p{font-size:13.5px;color:var(--muted);margin:0}
+.fbox .mono{font-size:12px}
+.farrow{display:flex;align-items:center;justify-content:center;gap:18px;padding:8px 0;color:var(--red);font-size:12.5px;font-weight:700;letter-spacing:.1em}
+.farrow .ln{flex:1;max-width:220px;height:1px;background:linear-gradient(90deg,transparent,var(--red),transparent)}
+.fbox.hot{border-color:rgba(226,38,56,.5);background:var(--red-soft)}
+.tree{font-family:Consolas,"Courier New",monospace;font-size:13px;line-height:1.8;color:#D8DEE6;white-space:pre;overflow-x:auto}
+.kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:26px 0}
+.kpi .k{border:1px solid var(--line);border-radius:12px;background:var(--bg2);padding:16px 18px;text-align:center}
+.kpi .n{font-size:26px;font-weight:900;color:var(--red);font-family:Consolas,monospace}
+.kpi .l{font-size:12px;color:var(--muted);margin-top:2px}
+@media (max-width:760px){.kpi{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="bar">
+    <a class="brand" href="../index.html"><img src="../favicon.svg" alt="">Cardinal<span class="zh">枢机</span></a>
+    <span class="crumb">/ 文档 / <b>项目详解</b></span>
+    <span class="sp"></span>
+    <a class="item" href="index.html">文档中心</a>
+    <a class="item" href="handover.html">交接文档</a>
+    <a class="item" href="runbook.html">部署手册</a>
+    <a class="item" href="record.html">对话全记录</a>
+    <a class="item on" href="explained.html">项目详解</a>
+  </div>
+</nav>
+
+<header class="hero wrap">
+  <p class="kicker">Deep Dive · 04</p>
+  <h1>枢机是什么，怎么运转</h1>
+  <p class="sub">一页讲清整个项目：它解决什么问题、四层架构如何分层、微信与 Telegram 两条入口链路怎么走、一条命令从发出到执行的完整旅程、安全红线如何落到代码、仓库里每个文件是干什么的、以及它现在的完成度。</p>
+  <div class="toc">
+    <a href="#s01">01 一句话定位</a><a href="#s02">02 解决什么问题</a><a href="#s03">03 四层架构</a><a href="#s04">04 两条入口链路</a><a href="#s05">05 一条命令的旅程</a><a href="#s06">06 安全红线落地</a><a href="#s07">07 代码地图</a><a href="#s08">08 心跳 Sidecar</a><a href="#s09">09 测试与验收</a><a href="#s10">10 部署形态</a><a href="#s11">11 现状与路线</a>
+  </div>
+</header>
+
+<main class="wrap">
+
+<section id="s01">
+  <p class="phno">Section 01</p>
+  <h2>一句话定位</h2>
+  <div class="concl">
+    <p class="lab">定位</p>
+    <p><b>枢机（Cardinal）是个人 Agent 世界的控制面。</b>把散落在多台主机、异构框架（OpenClaw / Hermes / 任意 CLI）上的 Agent 收进一个控制点：你在微信或 Telegram 发一条文本命令，命令沿「入口 → 网关 → 控制面 → 节点」四层架构下行到具体主机执行；Agent 的状态、心跳、任务与成本数据沿原路上行汇入一个面板。<b>万事，系于此枢。</b></p>
+  </div>
+  <p>它不是又一个 Agent 框架，而是<b>框架之上的一层</b>：统一纳管、统一命令、统一审计。项目代号 <b>Agenos</b>（Agent + OS），控制面品牌 <b>Cardinal</b>——中文「枢机」（户枢 + 弩机）与拉丁语 <span class="mono">cardo</span>（门轴）是词源上的双胞胎：门轴 → 关键 → 枢机 ＝ Cardinal。</p>
+  <div class="kpi">
+    <div class="k"><div class="n">4</div><div class="l">架构层数</div></div>
+    <div class="k"><div class="n">2+1</div><div class="l">命令入口（微信 / Telegram / 企微信备选）</div></div>
+    <div class="k"><div class="n">6+2</div><div class="l">命令协议（6 条 + confirm/help）</div></div>
+    <div class="k"><div class="n">59</div><div class="l">自动化测试（34+14+11）</div></div>
+  </div>
+</section>
+
+<section id="s02">
+  <p class="phno">Section 02</p>
+  <h2>解决什么问题</h2>
+  <p>当你拥有不止一台主机、不止一种 Agent 框架时，会出现三个「散」：<b>实例散</b>（这台机器跑着 OpenClaw，那台跑着 Hermes）、<b>入口散</b>（每个框架一个控制台）、<b>账目散</b>（Token 花在哪、任务跑到哪，没有一处看得全。枢机把三个「散」收成三个「一切」：</p>
+  <div class="tw"><table>
+    <tr><th>#</th><th>原则</th><th>含义</th></tr>
+    <tr><td><b>01</b></td><td><b>一切汇于此</b></td><td>多主机、异构框架统一注册：OpenClaw 原生接入，Hermes 经心跳 Sidecar 上报，其他 CLI 走 generic。注册、心跳、任务、成本、审计，一个面板。</td></tr>
+    <tr><td><b>02</b></td><td><b>一切令由此出</b></td><td>微信 / Telegram 发一条文本 → 命令路由归一 → 控制面 REST → 节点执行。危险命令二次确认后才放行。</td></tr>
+    <tr><td><b>03</b></td><td><b>一切只为你</b></td><td>唯一管理员，唯一主宰。命令入口白名单只接受你本人；其他人发任何消息，一律拒绝并留痕。</td></tr>
+  </table></div>
+  <p class="dim">立项时做过全网调研：没有任何单一现成工具同时满足「异构框架 × 跨主机 × 微信双向」三个条件，所以才有了这套组合架构——控制面用开源的 Mission-Control，入口与命令路由自研（本仓库），组网用 Tailscale。</p>
+</section>
+
+<section id="s03">
+  <p class="phno">Section 03</p>
+  <h2>四层架构：命令下行，数据上行</h2>
+  <p>层与层之间只传命令与数据，节点之间互不依赖——任何一层坏了都可以单独替换。</p>
+  <div class="flow">
+    <div class="frow">
+      <div class="fbox hot"><p class="r">入口层 · Entry</p><h4>微信 ClawBot · Telegram</h4><p>唯一人机入口。微信走腾讯官方 iLink 通道（经 OpenClaw）；Telegram 走 Bot API 长轮询。</p></div>
+    </div>
+    <div class="farrow"><span class="ln"></span>命令下行 ↓&nbsp;&nbsp;&nbsp;&nbsp;数据上行 ↑<span class="ln"></span></div>
+    <div class="frow">
+      <div class="fbox"><p class="r">网关层 · Gateway</p><h4>入口适配 · 命令路由</h4><p>消息收发、白名单校验、命令归一、危险操作二次确认、审计留痕。<span class="mono">packages/wechat-bridge</span></p></div>
+    </div>
+    <div class="farrow"><span class="ln"></span>REST / Webhook<span class="ln"></span></div>
+    <div class="frow">
+      <div class="fbox"><p class="r">控制面 · Control Plane</p><h4>Mission-Control</h4><p>Agent 注册、心跳、任务、日志、成本、审计；SQLite 单文件，约 50 Agent 上限，MIT 开源。</p></div>
+    </div>
+    <div class="farrow"><span class="ln"></span>心跳 ↑ / 任务 ↓<span class="ln"></span></div>
+    <div class="frow">
+      <div class="fbox"><p class="r">节点层 · Nodes</p><h4>各主机上的 Agent</h4><p>OpenClaw 原生接入；Hermes 经心跳 Sidecar；其他 CLI 走 generic 协议。</p></div>
+      <div class="fbox"><p class="r">网络 · Network</p><h4>Tailscale 加密内网</h4><p>所有主机经 Tailscale 组成内网；控制面与网关端口只监听 Tailscale 网卡或 127.0.0.1，不暴露公网。</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="s04">
+  <p class="phno">Section 04</p>
+  <h2>两条入口链路（ plus 一条备选）</h2>
+  <p>命令入口是整套系统唯一暴露给人的部分，因此设计原则是：<b>链路最短、认证最硬、不留公网端口</b>。三条链路并行独立，按需启用。</p>
+
+  <h3><span class="idx">A</span>微信：OpenClaw ClawBot 中转（主线）</h3>
+  <div class="tw"><table>
+    <tr><th>步</th><th>发生什么</th><th>关键点</th></tr>
+    <tr><td>1</td><td>微信发消息给 <b>ClawBot</b>（腾讯 2026 年官方 Bot 通道，底层协议 iLink）</td><td>官方通道，非协议破解；仅支持私聊</td></tr>
+    <tr><td>2</td><td>OpenClaw 主机上的 <span class="mono">@tencent-weixin/openclaw-weixin</span> 插件收下消息</td><td>扫码绑定，会话在 OpenClaw 侧</td></tr>
+    <tr><td>3</td><td>枢机的 <span class="mono">cardinal-bridge</span> 插件挂 <span class="mono">before_agent_reply</span> 钩子拦下这条消息</td><td><b>命中命令就不调模型</b>，确定性执行</td></tr>
+    <tr><td>4</td><td>插件把 <span class="mono">{from: 微信用户ID, text: 命令}</span> POST 到枢机桥的 <span class="mono">/openclaw</span> 端点</td><td>内网 HTTP，Bearer 令牌可选</td></tr>
+    <tr><td>5</td><td>桥执行命令（白名单终审在枢机侧），把回复文本交回插件，原路返回微信</td><td>普通对话则放行给 OpenClaw AI 正常应答</td></tr>
+  </table></div>
+  <p class="dim">为什么命令「不走模型」：命令执行要的是确定、低延迟、可审计——一条 <span class="mono">/list</span> 不应该等大模型想一圈。命中命令走钩子直连，普通对话才交给 AI，两者互不干扰。</p>
+
+  <h3><span class="idx">B</span>Telegram：官方 Bot API 长轮询（直连）</h3>
+  <div class="tw"><table>
+    <tr><th>步</th><th>发生什么</th><th>关键点</th></tr>
+    <tr><td>1</td><td>找 <span class="mono">@BotFather</span> 创建机器人拿令牌；找 <span class="mono">@userinfobot</span> 查你的数字用户 ID</td><td>五分钟搞定，无需服务器</td></tr>
+    <tr><td>2</td><td>枢机桥以 <span class="mono">ADAPTER=telegram</span> 启动，长轮询 <span class="mono">getUpdates</span></td><td><b>只从内网出站</b>，不监听任何端口</td></tr>
+    <tr><td>3</td><td>文本消息进同一个命令核心：白名单校验 → 执行 → <span class="mono">sendMessage</span> 回推</td><td>与微信链路共用同一套红线逻辑</td></tr>
+  </table></div>
+  <p class="dim">长轮询天然契合「不暴露公网」红线：没有回调 URL、没有入站端口、没有证书要维护。启动时默认丢弃宕机期间积压的消息，避免对过期命令刷屏。</p>
+
+  <h3><span class="idx">C</span>备选：企业微信自建应用</h3>
+  <p>需要群聊命令、或公司环境只有企微时，命令路由可切到 <span class="mono">ADAPTER=wecom</span>：官方回调验签加解密（WXBizMsgCrypt 等价实现，零依赖）、白名单、主动推送。Gewechat 类个人微信协议方案已停止维护，不再推荐。</p>
+</section>
+
+<section id="s05">
+  <p class="phno">Section 05</p>
+  <h2>一条命令的完整旅程</h2>
+  <p>以最典型的危险命令 <span class="mono">/dispatch</span>（下发任务）为例——它必须经过二次确认，最能体现红线的存在方式：</p>
+  <div class="msg user"><p class="who user">你 · 微信 / Telegram</p><div class="bubble"><p>/dispatch node-hermes 夜间巡检一次</p></div></div>
+  <div class="msg bot"><p class="who bot">枢机 · 命令路由</p><div class="bubble">
+    <p>⚠ 危险操作待确认：/dispatch node-hermes 夜间巡检一次</p>
+    <p>60 秒内发送 /confirm 3F9A2C1D 执行</p>
+    <p>发送其他任意消息即取消</p>
+  </div></div>
+  <div class="msg user"><p class="who user">你 · 微信 / Telegram</p><div class="bubble"><p>/confirm 3F9A2C1D</p></div></div>
+  <div class="msg bot"><p class="who bot">枢机 · 命令路由</p><div class="bubble"><p>已下发：{"ok":true,"task":{"id":"task-1","agentId":"node-hermes","title":"夜间巡检一次",…}}</p></div></div>
+  <p>这一进一出之间，命令核心做了五件事：</p>
+  <ol class="steps">
+    <li><b>白名单校验</b>：发送者 ID 不在 <span class="mono">allowFrom</span> 集合，直接回「拒绝访问」并写审计——命令根本不会被解析</li>
+    <li><b>危险识别</b>：<span class="mono">/dispatch</span> 命中危险命令表，先生成一次性令牌（8 位十六进制），<b>不调用管理面</b></li>
+    <li><b>令牌消费</b>：<span class="mono">/confirm</span> 校验令牌存在、未过期（60 秒）、且发起人是同一个人；三者任一不满足即拒绝</li>
+    <li><b>执行</b>：通过 Mission-Control 客户端 <span class="mono">POST /api/tasks</span> 真正下发，Bearer 鉴权、10 秒超时</li>
+    <li><b>审计</b>：每一步（含被拒绝的）都以 JSONL 追加到审计日志：时间、发送者、命令、结果</li>
+  </ol>
+  <div class="code"><header><span class="lang">审计日志 · audit.jsonl</span><button class="copybtn">复制</button></header><pre>{"ts":"2026-11-05T07:30:15.337Z","from":"me","cmd":"/dispatch node-hermes 夜间巡检一次","result":"confirm_required"}
+{"ts":"2026-11-05T07:30:22.914Z","from":"me","cmd":"/confirm 3F9A2C1D","confirmed":"/dispatch node-hermes 夜间巡检一次","result":"ok"}
+{"ts":"2026-11-05T07:30:31.002Z","from":"stranger","cmd":"/list","result":"denied"}</pre></div>
+</section>
+
+<section id="s06">
+  <p class="phno">Section 06</p>
+  <h2>安全红线如何落到代码</h2>
+  <p>红线不是口号，每一条都有对应实现和可独立执行的验证方式：</p>
+  <div class="tw"><table>
+    <tr><th>红线</th><th>实现</th><th>怎么验证</th></tr>
+    <tr><td>命令入口白名单，只留本人</td><td><span class="mono">core.js</span> 的 <span class="mono">allowFrom</span> 集合（微信 ID + Telegram ID 合并）；非名单一律拒绝</td><td>单测「白名单之外一律拒绝并留痕」；e2e T2 / T9</td></tr>
+    <tr><td>危险命令二次确认</td><td><span class="mono">confirm.js</span>：60 秒 TTL、一次性、仅发起人；未确认不触达管理面</td><td>单测「先要令牌，确认后才真正下发」「令牌过期」</td></tr>
+    <tr><td>全量审计</td><td><span class="mono">audit.js</span>：JSONL 一行一条，含被拒命令</td><td><span class="mono">cat /var/log/wechat-bridge/audit.jsonl</span></td></tr>
+    <tr><td>密钥不入库不入镜像</td><td>只走环境变量 / EnvironmentFile，模板 <span class="mono">deploy/env/*.example</span>，<span class="mono">chmod 600</span></td><td><span class="mono">git log -p | grep -i secret</span> 无结果</td></tr>
+    <tr><td>最小权限运行</td><td>systemd 单元：专用账号 + <span class="mono">NoNewPrivileges</span> + <span class="mono">ProtectSystem=strict</span>，禁止 root 常驻</td><td><span class="mono">systemd-analyze verify</span> 单元文件</td></tr>
+    <tr><td>端口不暴露公网</td><td>默认只绑 <span class="mono">127.0.0.1</span>；跨主机只绑 Tailscale 网卡；Telegram 链路长轮询出站、零监听</td><td><span class="mono">ss -tlnp</span> 核对监听地址</td></tr>
+    <tr><td>防篡改</td><td>企业微信回调：msg_signature 验签先于解密；伪造签名 400</td><td>单测「验签失败的消息必须 400」</td></tr>
+  </table></div>
+</section>
+
+<section id="s07">
+  <p class="phno">Section 07</p>
+  <h2>代码地图（bit-cook/shuji 仓库）</h2>
+  <div class="code"><header><span class="lang">仓库结构</span><button class="copybtn">复制</button></header><pre class="tree">shuji/
+├── packages/
+│   ├── wechat-bridge/            ← 命令路由（Node，零第三方依赖）
+│   │   ├── src/
+│   │   │   ├── core.js           ← 命令核心：白名单、协议、二次确认编排
+│   │   │   ├── confirm.js        ← 危险命令确认令牌（60s / 一次性 / 仅发起人）
+│   │   │   ├── audit.js          ← JSONL 审计
+│   │   │   ├── mc-client.js      ← Mission-Control REST 客户端（Bearer + 超时）
+│   │   │   ├── cli.js            ← 入口：--adapter http|telegram|wecom
+│   │   │   ├── index.js          ← 环境变量装配（createBridgeFromEnv）
+│   │   │   └── adapters/
+│   │   │       ├── http.js       ← /message /openclaw 端点（OpenClaw 插件入口）
+│   │   │       ├── telegram.js   ← Bot API 长轮询（积压丢弃 / 退避重试）
+│   │   │       └── wecom.js      ← 企业微信回调验签加解密 + 主动推送
+│   │   └── test/                 ← 34 项 node:test
+│   ├── openclaw-cardinal-plugin/ ← OpenClaw 插件（TypeScript）
+│   │   ├── src/index.ts          ← before_agent_reply 钩子注册
+│   │   ├── src/commands.ts       ← 命令识别（纯函数）
+│   │   ├── src/cardinal-client.ts← 枢机 HTTP 客户端（纯函数）
+│   │   └── test/                 ← 11 项 + tsc 对真实 SDK 零错误
+│   └── hermes-sidecar/           ← Hermes 心跳 Sidecar（Python 仅标准库）
+│       ├── sidecar.py            ← generic 协议心跳 / RPC→systemd 退化 / 退避重试
+│       └── tests/                ← 14 项 unittest
+├── deploy/                       ← docker-compose / Dockerfile / systemd / env 模板 / install.sh
+├── test/                         ← Mission-Control 测试桩 + Telegram 测试桩 + e2e（T1–T9）
+└── .github/workflows/ci.yml      ← 四 job CI：bridge / sidecar / plugin / e2e</pre></div>
+  <div class="tw"><table>
+    <tr><th>模块</th><th>一句话职责</th></tr>
+    <tr><td><span class="mono">core.js</span></td><td>平台无关的命令中枢：输入 (text, fromUser)，输出回复字符串；所有红线在这里编排</td></tr>
+    <tr><td><span class="mono">adapters/*</span></td><td>三个入口适配器只负责「收消息 → 调核心 → 发回复」，协议差异被关在各自文件里</td></tr>
+    <tr><td><span class="mono">openclaw-cardinal-plugin</span></td><td>OpenClaw 侧的「翻译官」：钩子拦命令、POST 给桥、把回复交回聊天通道</td></tr>
+    <tr><td><span class="mono">hermes-sidecar</span></td><td>让没有原生适配的 Hermes 也能被纳管：定时采状态、按 generic 协议上报心跳</td></tr>
+    <tr><td><span class="mono">test/*</span></td><td>测试桩不是产品：mock 控制面、mock Telegram、mock Hermes RPC，让 T1–T9 无需真实凭证可复跑</td></tr>
+  </table></div>
+</section>
+
+<section id="s08">
+  <p class="phno">Section 08</p>
+  <h2>心跳 Sidecar：没有原生适配的框架怎么纳管</h2>
+  <p>Mission-Control 原生适配 OpenClaw；Hermes 暂无官方适配，解法是一个<b>仅依赖 Python 标准库</b>的伴生进程：</p>
+  <ol class="steps">
+    <li><b>采状态</b>：先问 Hermes 本地 RPC（<span class="mono">http://127.0.0.1:8765/status</span>）；不可用则退化查 systemd 单元是否 active；两者皆败才报 offline</li>
+    <li><b>上报</b>：按 generic 协议 <span class="mono">POST /api/agents/heartbeat</span>，带上 agentId、状态、时间戳和详情，Bearer 鉴权</li>
+    <li><b>重试</b>：失败指数退避（默认 3 次）；<b>401/403 快速失败</b>——密钥错误重试无益</li>
+    <li><b>常驻</b>：systemd 托管，SIGTERM 优雅退出，JSON 结构化日志直接进 journald</li>
+  </ol>
+  <p>效果：Hermes 停机后一个心跳周期内，<span class="mono">/list</span> 与面板同步转离线；恢复后自动回线——这正是验收用例 T4 / T5 自动验证的行为。</p>
+</section>
+
+<section id="s09">
+  <p class="phno">Section 09</p>
+  <h2>测试与验收：每条都可复跑</h2>
+  <div class="kpi">
+    <div class="k"><div class="n">34</div><div class="l">wechat-bridge 单测</div></div>
+    <div class="k"><div class="n">14</div><div class="l">hermes-sidecar 单测</div></div>
+    <div class="k"><div class="n">11</div><div class="l">OpenClaw 插件单测</div></div>
+    <div class="k"><div class="n">9</div><div class="l">端到端验收 T1–T9</div></div>
+  </div>
+  <p>端到端验收复跑部署手册 Phase 09 的全部用例——用 mock 控制面 + mock Hermes RPC + mock Telegram + <b>真实 Sidecar 子进程 + 真实桥</b>，不需要任何真实凭证：</p>
+  <div class="tw"><table>
+    <tr><th>#</th><th>用例</th><th>预期</th><th>类型</th></tr>
+    <tr><td class="mono">T1</td><td>微信发 /ping</td><td>收到 pong 与时间戳</td><td>链路</td></tr>
+    <tr><td class="mono">T2</td><td>白名单外账号发任意消息</td><td>拒绝访问，无命令执行</td><td>安全</td></tr>
+    <tr><td class="mono">T3</td><td>/list</td><td>列出全部实例，Hermes 节点在线</td><td>状态</td></tr>
+    <tr><td class="mono">T4</td><td>停掉 Hermes 网关</td><td>一个心跳周期内转离线</td><td>告警</td></tr>
+    <tr><td class="mono">T5</td><td>恢复 Hermes 后 /status</td><td>状态回 online，详情可读</td><td>恢复</td></tr>
+    <tr><td class="mono">T6</td><td>/cost</td><td>Token 成本汇总，数字非空</td><td>计量</td></tr>
+    <tr><td class="mono">T7</td><td>/dispatch 下发测试任务</td><td>二次确认后任务落库可查</td><td>调度</td></tr>
+    <tr><td class="mono">T8</td><td>重启桥进程</td><td>服务拉起，数据不丢</td><td>韧性</td></tr>
+    <tr><td class="mono">T9</td><td>Telegram /ping；陌生人发消息</td><td>pong 正常；陌生人被拒</td><td>入口</td></tr>
+  </table></div>
+  <p class="dim">其中企业微信链路的真服务器加解密往返（加密消息进 → 加密回复出、伪造签名 400、URL 验签）由 bridge 单测覆盖；OpenClaw 插件对着真实 <span class="mono">openclaw@2026.10.10</span> SDK 做 <span class="mono">tsc --noEmit</span> 类型检查，零错误。全部由 CI 四个 job 在每次推送时复跑。</p>
+</section>
+
+<section id="s10">
+  <p class="phno">Section 10</p>
+  <h2>部署形态</h2>
+  <div class="tw"><table>
+    <tr><th>主机</th><th>跑什么</th><th>怎么装</th></tr>
+    <tr><td><b>主控机 mc-console</b></td><td>Mission-Control（Docker）+ 命令路由 HTTP 实例 + 命令路由 Telegram 实例</td><td><span class="mono">docker compose -f deploy/docker-compose.yml up -d</span></td></tr>
+    <tr><td><b>OpenClaw 主机</b></td><td>OpenClaw Gateway + 微信 ClawBot 插件 + cardinal-bridge 插件</td><td>官方插件 install + 扫码；枢机插件 <span class="mono">plugins install --link</span></td></tr>
+    <tr><td><b>Hermes 主机</b></td><td>Hermes Agent + 心跳 Sidecar</td><td><span class="mono">sudo deploy/install.sh</span>（专用账号 + systemd 加固单元）</td></tr>
+  </table></div>
+  <p>三个入口适配器是同一份代码的三个进程：<span class="mono">ADAPTER=http</span> 服务 OpenClaw 插件与人工排查，<span class="mono">ADAPTER=telegram</span> 服务 Telegram，<span class="mono">ADAPTER=wecom</span> 服务企业微信——按需启用，互不影响。</p>
+</section>
+
+<section id="s11">
+  <p class="phno">Section 11</p>
+  <h2>现状与路线</h2>
+  <h3><span class="idx">✓</span>已完成（v0.2，CI 全绿）</h3>
+  <ul class="list">
+    <li>命令路由：白名单、六条命令 + confirm/help、二次确认、审计、三入口适配器</li>
+    <li>OpenClaw 插件：before_agent_reply 钩子，命令不走模型；类型检查对真实 SDK 零错误</li>
+    <li>Hermes 心跳 Sidecar：generic 协议、状态退化、重试退避、优雅退出</li>
+    <li>部署：compose / systemd / env 模板 / install.sh；CI 四 job；T1–T9 验收全过</li>
+  </ul>
+  <h3><span class="idx">→</span>下一步</h3>
+  <ul class="list">
+    <li><b>真机联调</b>：OpenClaw 主机装 ClawBot 插件扫码 + link 枢机插件；Telegram 找 BotFather 拿令牌——手册阶段 06/07 已写好每一步</li>
+    <li>群聊命令：ClawBot 仅私聊，群场景走企业微信入口</li>
+    <li>更多纳管：其他 CLI Agent 走 generic 心跳协议直接接入</li>
+  </ul>
+  <div class="note">
+    <p class="lab">怎么开始</p>
+    <p>想跑起来：按 <a href="runbook.html" style="color:var(--red)">部署手册</a> 阶段 06/07 接入口。想读代码：去 <a href="https://github.com/bit-cook/shuji" target="_blank" rel="noopener" style="color:var(--red)">bit-cook/shuji</a>，先看 <span class="mono">packages/wechat-bridge/src/core.js</span>——整个系统的红线都编排在那一个文件里。</p>
+  </div>
+</section>
+
+</main>
+
+<div class="pager wrap">
+  <a href="record.html"><p class="dir">← Prev</p><p class="ttl">Agenos 项目对话全记录</p></a>
+  <a class="next" href="runbook.html"><p class="dir">Next →</p><p class="ttl">多 Agent 舰队部署手册</p></a>
+</div>
+
+<footer>
+  <div class="wrap">
+    <span><b style="color:var(--text)">Cardinal · 枢机</b> — Agenos 项目的控制面</span>
+    <span><a href="../index.html">官网</a> · <a href="https://github.com/bit-cook/cardinal-plan" target="_blank" rel="noopener">GitHub</a></span>
+  </div>
+</footer>
+
+<script>
+document.addEventListener("click", function(e){
+  var b = e.target.closest(".copybtn");
+  if(!b) return;
+  var pre = b.closest(".code").querySelector("pre");
+  navigator.clipboard.writeText(pre.innerText).then(function(){
+    b.textContent = "已复制 ✓"; b.classList.add("ok");
+    setTimeout(function(){ b.textContent = "复制"; b.classList.remove("ok"); }, 1600);
+  });
+});
+</script>
+
+</body>
+</html>
