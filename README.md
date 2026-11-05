@@ -25,7 +25,7 @@
 
 ## 实现在别处
 
-[**bit-cook/shuji**](https://github.com/bit-cook/shuji) — 枢机的软件实现（v0.6.1）：
+[**bit-cook/shuji**](https://github.com/bit-cook/shuji) — 枢机的软件实现（v0.6.2）：
 
 - `packages/mission-control` — **控制面**（Node 标准库 + `node:sqlite`）：Agent 注册与心跳、任务下发/领取/回报、Token 成本计量、Bearer 鉴权、审计、心跳超时纠偏、**只读网页面板**（`/panel`，会话 Cookie 鉴权）。数据的持久真相在这里
 - `packages/wechat-bridge` — 命令路由（Node）：白名单、八条命令协议、危险命令二次确认、**微信 iLink 原生长轮询（不需要装 OpenClaw）**、Telegram 长轮询、企业微信回调加解密（备选）、JSONL 审计、端点 Bearer 鉴权、限流。唯一第三方依赖 `qrcode-terminal`（扫码登录在终端画二维码）

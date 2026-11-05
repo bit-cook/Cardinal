@@ -65,7 +65,7 @@
     <div class="k"><div class="n">4</div><div class="l">架构层数</div></div>
     <div class="k"><div class="n">2+1</div><div class="l">命令入口（微信 / Telegram / 企微信备选）</div></div>
     <div class="k"><div class="n">6+2</div><div class="l">命令协议（6 条 + confirm/help）</div></div>
-    <div class="k"><div class="n">334</div><div class="l">自动化测试（133+125+25+22 单测 + 29 项 e2e）</div></div>
+    <div class="k"><div class="n">337</div><div class="l">自动化测试（133+129+25+22 单测 + 29 项 e2e）</div></div>
   </div>
 </section>
 
@@ -250,7 +250,7 @@
   <h2>测试与验收：每条都可复跑</h2>
   <div class="kpi">
     <div class="k"><div class="n">99</div><div class="l">wechat-bridge 单测</div></div>
-    <div class="k"><div class="n">125</div><div class="l">mission-control 单测</div></div>
+    <div class="k"><div class="n">129</div><div class="l">mission-control 单测</div></div>
     <div class="k"><div class="n">25</div><div class="l">hermes-sidecar 单测</div></div>
     <div class="k"><div class="n">22</div><div class="l">OpenClaw 插件单测</div></div>
     <div class="k"><div class="n">29</div><div class="l">端到端验收 T1–T26</div></div>
@@ -292,7 +292,7 @@
 <section id="s11">
   <p class="phno">Section 11</p>
   <h2>现状与路线</h2>
-  <h3><span class="idx">✓</span>已完成（v0.6.1，CI 全绿，双入口真机联调通过）</h3>
+  <h3><span class="idx">✓</span>已完成（v0.6.2，CI 全绿，双入口真机联调通过）</h3>
   <ul class="list">
     <li>命令路由：白名单、八条命令（ping/list/status/tasks/cost/dispatch/confirm/help）、二次确认、审计（0600 + 轮转）、限流、端点 Bearer 鉴权、四个入口适配器</li>
     <li>控制面（v0.4 新增，枢机自研）：Agent 注册与心跳、任务下发/领取/回报、Token 成本计量、Bearer 鉴权、审计只记元数据、<b>读路径心跳超时纠偏</b>（不再轻信 Agent 自报的 online）、SQLite 持久</li>

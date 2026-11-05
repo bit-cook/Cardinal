@@ -562,8 +562,17 @@ curl -s -b /tmp/panel.cookie http://127.0.0.1:3000/panel/api/snapshot</pre></div
 <pre>MC_PANEL=1                    # 0 则 /panel 全部 404
 MC_PANEL_SESSION_TTL_MS=43200000
 MC_PANEL_LOGIN_PER_MIN=5</pre></div>
-  <p class="dim">面板与 <span class="mono">/api/*</span> 共用一个监听端口，因此自动继承同一套约束：默认只绑 <span class="mono">127.0.0.1</span>（拒绝 <span class="mono">0.0.0.0</span>）、
+  <p class="dim">面板与 <span class="mono">/api/*</span> 共用一个监听端口，因此自动继承同一套约束：默认只绑 <span class="mono">127.0.0.1</span>（通配地址 <span class="mono">0.0.0.0</span> 需显式 <span class="mono">ALLOW_PUBLIC_BIND=1</span>）、
   每 IP 全局限流、登录成功与失败都写审计。单文件 HTML，零前端依赖，深浅色主题跟随系统并可手动覆盖。</p>
+  <h3><span class="idx">7.5.4</span>从外网临时联调</h3>
+  <p><span class="mono">MC_HOST</span> 可以填<b>逗号分隔的多个地址</b>，本机组件继续走回环、外部访问走公网网卡，两条路同时活着：</p>
+  <div class="code"><header><span class="lang">bash · deploy/env/mission-control.env</span><button class="copybtn">复制</button></header>
+<pre>MC_HOST=127.0.0.1,45.140.144.139      # 回环 + 本机公网网卡
+sudo systemctl restart cardinal-mission-control   # 或 systemctl --user
+# 启动日志会逐行打印：监听 http://127.0.0.1:3000 / http://45.140.144.139:3000</pre></div>
+  <div class="callout warn"><b>只改一个地址会把本机组件掐断。</b>若把 <span class="mono">MC_HOST</span> 从 <span class="mono">127.0.0.1</span> 单独改成公网网卡，
+  Sidecar 的心跳与两个桥的命令转发会立刻连接被拒，而控制面本身看起来<b>运行正常</b>——日志里只有对端的连接错误。
+  所以外网联调要写成两个地址，而不是替换掉回环。测完把 <span class="mono">MC_HOST</span> 改回 <span class="mono">127.0.0.1</span> 并重启。</div>
   <h3><span class="idx">7.5.3</span>验收</h3>
   <ul class="list">
     <li>浏览器打开 <span class="mono">http://127.0.0.1:3000/panel</span>，输对 Key 后看到 Agent 磁贴、任务计数、成本汇总</li>
